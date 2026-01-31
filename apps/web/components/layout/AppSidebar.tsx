@@ -16,9 +16,8 @@ import {
   Megaphone,
   MessageSquareText,
   Archive,
-  CalendarPlus,
   Plus,
-  CalendarCheck2,
+  FileText,
 } from "lucide-react";
 
 // import { supabase } from "@/lib/supabase/client";
@@ -46,12 +45,24 @@ type AppSidebarProps = {
   className?: string;
 };
 
-function isActive(pathname: string, href: string) {
-  if (href === "/admin") return pathname === "/admin";
-  if (href === "/dashboard") return pathname === "/dashboard";
+function normalizePath(path: string) {
+  // Remove trailing slash except root
+  if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
+  return path;
+}
 
-  // Default: exact or nested
-  return pathname === href || pathname.startsWith(href + "/");
+function isActive(pathname: string, href: string) {
+  const current = normalizePath(pathname);
+  const target = normalizePath(href);
+
+  // Base routes should match ONLY the exact page
+  // (prevents "/resident" from matching "/resident/book-appointment", etc.)
+  if (target === "/admin") return current === "/admin";
+  if (target === "/staff") return current === "/staff";
+  if (target === "/resident") return current === "/resident";
+
+  // Default: exact or nested match
+  return current === target || current.startsWith(target + "/");
 }
 
 export default function AppSidebar({
@@ -78,30 +89,38 @@ export default function AppSidebar({
   const items = useMemo<SidebarItem[]>(() => {
     if (role === "resident") {
       return [
-        { label: "Overview", href: "/resident", icon: LayoutDashboard},
-        { label: "Book Appointment", href: "/appointment/new", icon: CalendarPlus },
-        { label: "My Appointments", href: "/appointment", icon: Plus },
-        { label: "Announcements", href: "/announcement", icon: Megaphone },
-        { label: "Feedback", href: "/feedback", icon: MessageSquareText },
+        { label: "Overview", href: "/resident", icon: LayoutDashboard },
+        { label: "Book Appointment", href: "/resident/book-appointment", icon: Plus },
+        { label: "My Appointments", href: "/resident/my-appointment", icon: FileText },
+        { label: "Announcements", href: "/resident/announcement", icon: Megaphone },
+        { label: "Feedback", href: "/resident/feedback", icon: MessageSquareText },
       ];
     }
 
-    // admin + staff
-    const adminStaff: SidebarItem[] = [
+    if (role === "staff") {
+      // Limited access (add/remove as you create staff routes)
+      return [
+        { label: "Overview", href: "/staff", icon: LayoutDashboard },
+        { label: "Residents", href: "/staff/resident", icon: Users },
+        { label: "Appointments", href: "/staff/appointment", icon: ClipboardList },
+        { label: "Schedules", href: "/staff/schedule", icon: CalendarDays },
+        { label: "Announcements", href: "/staff/announcement", icon: Megaphone },
+        { label: "Feedback", href: "/staff/feedback", icon: MessageSquareText },
+      ];
+    }
+
+    // Admin
+    const adminItems: SidebarItem[] = [
       { label: "Overview", href: "/admin", icon: LayoutDashboard },
       { label: "Residents", href: "/admin/resident", icon: Users },
       { label: "Appointments", href: "/admin/appointment", icon: ClipboardList },
       { label: "Schedules", href: "/admin/schedule", icon: CalendarDays },
       { label: "Announcements", href: "/admin/announcement", icon: Megaphone },
       { label: "Feedback", href: "/admin/feedback", icon: MessageSquareText },
+      { label: "Archive", href: "/admin/archive", icon: Archive },
     ];
 
-    // Only super_admin sees Archive
-    if (role === "admin") {
-      adminStaff.push({ label: "Archive", href: "/admin/archive", icon: Archive });
-    }
-
-    return adminStaff;
+    return adminItems;
   }, [role]);
 
   async function onLogout() {
@@ -112,6 +131,13 @@ export default function AppSidebar({
     router.refresh();
   }
 
+  const profileHref =
+    role === "resident"
+      ? "/resident/profile"
+      : role === "staff"
+        ? "/staff/profile"
+        : "/admin/profile";
+
   return (
     <aside
       className={[
@@ -120,11 +146,18 @@ export default function AppSidebar({
         className,
       ].join(" ")}
     >
+
       {/* Header / Brand */}
       <div className="px-6 py-6 border-b border-white/10">
         <div className="flex flex-col items-center text-center">
           <div className="relative h-20 w-20">
-            <Image src={logoSrc} alt="Barangay Logo" fill className="object-contain" priority />
+            <Image
+              src={logoSrc}
+              alt="Barangay Logo"
+              fill
+              className="object-contain"
+              priority
+            />
           </div>
 
           <div className="mt-3 text-xs text-white/70">{computedBrandSubtitle}</div>
@@ -134,7 +167,7 @@ export default function AppSidebar({
 
       {/* Nav */}
       <nav className="px-4 py-4 space-y-2">
-        <div className="px-2 pb-2 text-sm text-white/60">Menu</div>
+        <div className="px-2 pb-2 text-xs text-white/60">Menu</div>
 
         {items.map((item) => {
           const active = isActive(pathname, item.href);
@@ -144,15 +177,17 @@ export default function AppSidebar({
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={[
-                "rounded-md font-medium px-3 py-3 text-base transition-colors flex items-center gap-3",
-                active ? "bg-white text-[#062E24]" : "text-white/90 hover:bg-white/10 hover:text-white",
+                "rounded-md font-medium p-3 text-base transition-colors flex items-center gap-2",
+                active
+                  ? "bg-white text-[#062E24]"
+                  : "text-white/90 hover:bg-white/10 hover:text-white",
               ].join(" ")}
             >
-              <Icon className="h-6 w-6 shrink-0" />
-              <span>{item.label}</span>
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="text-sm">{item.label}</span>
             </Link>
-
           );
         })}
       </nav>
@@ -174,7 +209,7 @@ export default function AppSidebar({
         {profileOpen && (
           <div className="mt-2 rounded-md border border-white/10 bg-white/5 p-2">
             <Link
-              href={role === "resident" ? "/profile" : "/admin/profile"}
+              href={profileHref}
               className="block rounded-md px-3 py-2 text-sm hover:bg-white/10"
               onClick={() => setProfileOpen(false)}
             >

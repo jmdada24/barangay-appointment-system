@@ -12,8 +12,9 @@ type MainHeaderItem = {
 
 function matchPath(pathname: string, href: string) {
   // Prevent "/admin" from matching all admin subroutes
-  if (href === "/admin") return pathname === "/admin";
-
+if (href === "/admin" || href === "/resident" || href ==='/staff') {
+    return pathname === href;
+  }
   // exact or nested match
   return pathname === href || pathname.startsWith(href + "/");
 }

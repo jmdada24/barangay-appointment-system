@@ -1,11 +1,5 @@
-export default function StaffHomePage() {
-  return (
-    <div className="space-y-6">
-     
-      
+import { OverviewPage } from "@/components/pages";
 
-
-
-    </div>
-  );
+export default function StaffOverviewPage() {
+  return <OverviewPage role="staff" />;
 }
