@@ -12,7 +12,7 @@ export default function AuthLeftPanel({
   className = "",
 }: AuthLeftPanelProps) {
   return (
-    <div className={`hidden lg:flex h-dvh flex-col items-center justify-center px-12 text-white bg-[#062E24] ${className}`}>
+    <div className={`hidden lg:flex h-dvh flex-col items-center justify-center px-12 text-white bg-primary ${className}`}>
       <div className="mb-8">
         <div className="relative h-36 w-36">
           <Image src={logoSrc} alt="Barangay Logo" fill className="object-contain" priority />

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle, FileText, Star } from "lucide-react";
+import { CheckCircle, FileText, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { submitFeedback } from "@/actions/feedback";
 
 const feedbackCategories = [
   "General Feedback",
@@ -23,6 +24,7 @@ export default function ResidentFeedback() {
   const [feedback, setFeedback] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   function validateForm() {
     const newErrors: Record<string, string> = {};
@@ -43,13 +45,29 @@ export default function ResidentFeedback() {
     return Object.keys(newErrors).length === 0;
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validateForm()) return;
 
-    // TODO: Submit to Supabase
-    console.log("Submit feedback:", { rating, category, feedback });
-    setShowSuccessModal(true);
+    setIsLoading(true);
+
+    // Get resident ID from localStorage or from your auth context
+    // For now, we'll use a placeholder - adjust based on your auth setup
+    const residentId = parseInt(localStorage.getItem("residentId") || "1", 10);
+
+    const result = await submitFeedback(residentId, {
+      rating,
+      category: category as typeof feedbackCategories[number],
+      content: feedback,
+    });
+
+    if (result.success) {
+      setShowSuccessModal(true);
+    } else {
+      alert(result.error || "Failed to submit feedback");
+    }
+
+    setIsLoading(false);
   }
 
   function handleSuccessClose() {
@@ -169,7 +187,12 @@ export default function ResidentFeedback() {
             </div>
 
             {/* Submit Button */}
-            <Button type="submit" className="w-full bg-primary hover:bg-primary/90">
+            <Button
+              type="submit"
+              className="w-full bg-primary hover:bg-primary/90"
+              disabled={isLoading}
+            >
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Submit Feedback
             </Button>
           </form>

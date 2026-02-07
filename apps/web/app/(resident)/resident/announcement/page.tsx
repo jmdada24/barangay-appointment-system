@@ -1,101 +1,174 @@
 "use client";
 
-import { Calendar, Megaphone } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Calendar, Megaphone, Loader2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { getAnnouncements } from "@/actions/announcements";
+
+type AnnouncementType = "info" | "warning" | "urgent";
 
 type Announcement = {
-  id: string;
+  id: number;
   title: string;
   content: string;
-  postedDate: string;
+  type: AnnouncementType;
+  created_at: string;
 };
 
-// Mock data - will be replaced with Supabase data later
-const mockAnnouncements: Announcement[] = [
-  {
-    id: "1",
-    title: "Barangay Office Holiday Schedule",
-    content:
-      "The Barangay Office will be closed on January 25, 2026 in observance of a special non-working holiday. Regular operations will resume on January 26, 2026.",
-    postedDate: "January 20, 2026",
-  },
-  {
-    id: "2",
-    title: "New Operating Hours",
-    content:
-      "Starting February 1, 2026, the Barangay Office will be open from 8:00 AM to 5:00 PM, Monday to Friday. Saturday operations remain from 8:00 AM to 12:00 PM.",
-    postedDate: "January 18, 2026",
-  },
-  {
-    id: "3",
-    title: "Community Clean-Up Drive",
-    content:
-      "Join us for our monthly community clean-up drive on January 28, 2026, starting at 6:00 AM. Let's work together to keep our barangay clean and green!",
-    postedDate: "January 15, 2026",
-  },
-  {
-    id: "4",
-    title: "Free Medical Mission",
-    content:
-      "A free medical mission will be held at the Barangay Hall on February 5, 2026 from 8:00 AM to 4:00 PM. Services include general check-up, dental, and eye screening.",
-    postedDate: "January 12, 2026",
-  },
-  {
-    id: "5",
-    title: "Barangay ID Registration",
-    content:
-      "Residents who have not yet claimed their Barangay ID may do so at the Barangay Hall during office hours. Please bring a valid government ID and 1x1 photo.",
-    postedDate: "January 10, 2026",
-  },
-];
+function getTypeStyles(type: AnnouncementType) {
+  switch (type) {
+    case "info":
+      return "text-blue-600";
+    case "warning":
+      return "text-yellow-600";
+    case "urgent":
+      return "text-red-600";
+  }
+}
+
+function capitalizeFirst(str: string) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function formatDate(dateISO: string) {
+  try {
+    const dateString = dateISO.split("T")[0];
+    const d = new Date(dateString + "T00:00:00Z");
+    return new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }).format(d);
+  } catch (error) {
+    return dateISO;
+  }
+}
 
 export default function ResidentAnnouncements() {
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
+
+  async function fetchAnnouncements() {
+    setLoading(true);
+    setError(null);
+
+    const result = await getAnnouncements();
+    if (result.success && result.data) {
+      setAnnouncements(result.data as Announcement[]);
+    } else {
+      setError(result.error || "Failed to load announcements");
+    }
+
+    setLoading(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border border-red-200 shadow-sm">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-medium text-red-900">Error Loading Announcements</h3>
+              <p className="text-sm text-red-700 mt-1">{error}</p>
+              <button
+                onClick={fetchAnnouncements}
+                className="mt-3 text-sm font-medium text-red-600 hover:text-red-700 underline"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Announcements List */}
       <div className="space-y-4">
-        {mockAnnouncements.map((announcement) => (
-          <Card key={announcement.id} className="border border-gray-200 shadow-sm">
-            <CardContent className="p-5">
-              <div className="flex gap-4">
-                {/* Icon */}
-                <div className="flex-shrink-0">
-                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                    <Megaphone className="w-5 h-5 text-primary" />
+        {announcements.length > 0 ? (
+          announcements.map((announcement) => (
+            <Card
+              key={announcement.id}
+              className="border border-gray-200 shadow-sm"
+            >
+              <CardContent className="p-5">
+                <div className="flex gap-4">
+                  {/* Icon */}
+                  <div className="flex-shrink-0">
+                    <div
+                      className={`w-10 h-10 ${getTypeStyles(announcement.type).replace(
+                        "text-",
+                        "bg-"
+                      ).replace("-600", "-100")} rounded-lg flex items-center justify-center`}
+                    >
+                      <Megaphone
+                        className={`w-5 h-5 ${getTypeStyles(
+                          announcement.type
+                        )}`}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                    {announcement.title}
-                  </h2>
-                  <p className="text-sm text-gray-600 mb-3 leading-relaxed">
-                    {announcement.content}
-                  </p>
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Posted on {announcement.postedDate}</span>
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h2 className="text-lg font-semibold text-gray-900">
+                        {announcement.title}
+                      </h2>
+                      <span
+                        className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          announcement.type === "info"
+                            ? "bg-blue-100 text-blue-700"
+                            : announcement.type === "warning"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {capitalizeFirst(announcement.type)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-3 leading-relaxed">
+                      {announcement.content}
+                    </p>
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Posted on {formatDate(announcement.created_at)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <Card className="border border-gray-200 shadow-sm">
+            <CardContent className="p-10 text-center">
+              <Megaphone className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <h3 className="text-lg font-medium text-gray-900 mb-1">
+                No announcements yet
+              </h3>
+              <p className="text-sm text-gray-500">
+                Check back later for updates from the barangay office.
+              </p>
             </CardContent>
           </Card>
-        ))}
+        )}
       </div>
-
-      {/* Empty State */}
-      {mockAnnouncements.length === 0 && (
-        <Card className="border border-gray-200 shadow-sm">
-          <CardContent className="p-10 text-center">
-            <Megaphone className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <h3 className="text-lg font-medium text-gray-900 mb-1">No announcements yet</h3>
-            <p className="text-sm text-gray-500">
-              Check back later for updates from the barangay office.
-            </p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

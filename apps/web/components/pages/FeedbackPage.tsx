@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Calendar, Filter, MessageSquare, Star, Trash2, User, Archive } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Calendar, Filter, MessageSquare, Star, Trash2, User, Archive, Loader2, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { getFeedback, deleteFeedback, archiveFeedback } from "@/actions/feedback";
 
 type UserRole = "admin" | "staff";
 
@@ -17,49 +18,93 @@ type FeedbackCategory =
   | "Complaints"
   | "Others";
 
-type Feedback = {
-  id: string;
-  residentName: string;
-  residentEmail: string;
+type FeedbackData = {
+  id: number;
+  resident_id: number;
   rating: number;
   category: FeedbackCategory;
-  content: string;
-  createdAt: string;
+  comments: string;
+  submitted_at: string;
+  residents: {
+    id: number;
+    name: string;
+    users: {
+      email: string;
+    };
+  };
 };
 
 interface FeedbackPageProps {
   role: UserRole;
 }
 
-const mockFeedbacks: Feedback[] = [
-  { id: "1", residentName: "Juan Dela Cruz", residentEmail: "juan.delacruz@email.com", rating: 4, category: "Service Quality", content: "The online appointment system is easy to use. Great improvement!", createdAt: "2026-01-17" },
-  { id: "2", residentName: "Maria Santos", residentEmail: "maria.santos@email.com", rating: 5, category: "Service Quality", content: "Excellent service! The staff were very helpful.", createdAt: "2026-01-16" },
-  { id: "3", residentName: "Pedro Reyes", residentEmail: "pedro.reyes@email.com", rating: 2, category: "Complaints", content: "Long waiting time. Please improve the queue system.", createdAt: "2026-01-15" },
-];
-
 const categories: FeedbackCategory[] = [
-  "General Feedback", "Service Quality", "Staff Assistance", "Facility Condition",
-  "Appointment Process", "Suggestions", "Complaints", "Others",
+  "General Feedback",
+  "Service Quality",
+  "Staff Assistance",
+  "Facility Condition",
+  "Appointment Process",
+  "Suggestions",
+  "Complaints",
+  "Others",
 ];
 
-const ratingLabels: Record<number, string> = { 1: "Poor", 2: "Fair", 3: "Average", 4: "Good", 5: "Excellent" };
+const ratingLabels: Record<number, string> = {
+  1: "Poor",
+  2: "Fair",
+  3: "Average",
+  4: "Good",
+  5: "Excellent",
+};
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  try {
+    const dateString = dateStr.split("T")[0];
+    const d = new Date(dateString + "T00:00:00Z");
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(d);
+  } catch {
+    return dateStr;
+  }
 }
 
 export default function FeedbackPage({ role }: FeedbackPageProps) {
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>(mockFeedbacks);
+  const [feedbacks, setFeedbacks] = useState<FeedbackData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
-  const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
+  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackData | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    fetchFeedback();
+  }, []);
+
+  async function fetchFeedback() {
+    setLoading(true);
+    setError(null);
+
+    const result = await getFeedback();
+    if (result.success && result.data) {
+      setFeedbacks(result.data as FeedbackData[]);
+    } else {
+      setError(result.error || "Failed to load feedback");
+    }
+
+    setLoading(false);
+  }
 
   const stats = useMemo(() => {
     const total = feedbacks.length;
-    const avg = total > 0 ? (feedbacks.reduce((sum, f) => sum + f.rating, 0) / total).toFixed(1) : "0";
+    const avg =
+      total > 0 ? (feedbacks.reduce((sum, f) => sum + f.rating, 0) / total).toFixed(1) : "0";
     const fiveStar = feedbacks.filter((f) => f.rating === 5).length;
     const needsAttention = feedbacks.filter((f) => f.rating <= 2).length;
     return [
@@ -71,18 +116,18 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
   }, [feedbacks]);
 
   const filteredFeedbacks = useMemo(() => {
-    let result = [...feedbacks];
-    if (categoryFilter !== "all") result = result.filter((f) => f.category === categoryFilter);
-    if (ratingFilter !== "all") result = result.filter((f) => f.rating === parseInt(ratingFilter));
-    result.sort((a, b) => {
-      const dateA = new Date(a.createdAt).getTime();
-      const dateB = new Date(b.createdAt).getTime();
-      return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
-    });
-    return result;
-  }, [feedbacks, categoryFilter, ratingFilter, sortOrder]);
+  let result = [...feedbacks];
+  if (categoryFilter !== "all") result = result.filter((f) => f.category === categoryFilter);
+  if (ratingFilter !== "all") result = result.filter((f) => f.rating === parseInt(ratingFilter));
+  result.sort((a, b) => {
+    const dateA = new Date(a.submitted_at).getTime();
+    const dateB = new Date(b.submitted_at).getTime();
+    return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
+  });
+  return result;
+}, [feedbacks, categoryFilter, ratingFilter, sortOrder]);
 
-  function handleRemoveClick(feedback: Feedback) {
+  function handleRemoveClick(feedback: FeedbackData) {
     setSelectedFeedback(feedback);
     if (role === "staff") {
       setShowArchiveModal(true);
@@ -91,18 +136,68 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
     }
   }
 
-  function handleArchiveConfirm() {
+  async function handleArchiveConfirm() {
     if (!selectedFeedback) return;
-    setFeedbacks((prev) => prev.filter((f) => f.id !== selectedFeedback.id));
-    setShowArchiveModal(false);
-    setSelectedFeedback(null);
+
+    setActionLoading(true);
+    const result = await archiveFeedback(selectedFeedback.id);
+
+    if (result.success) {
+      setFeedbacks((prev) => prev.filter((f) => f.id !== selectedFeedback.id));
+      setShowArchiveModal(false);
+      setSelectedFeedback(null);
+    } else {
+      alert(result.error || "Failed to archive feedback");
+    }
+
+    setActionLoading(false);
   }
 
-  function handleDeleteConfirm() {
+  async function handleDeleteConfirm() {
     if (!selectedFeedback) return;
-    setFeedbacks((prev) => prev.filter((f) => f.id !== selectedFeedback.id));
-    setShowDeleteModal(false);
-    setSelectedFeedback(null);
+
+    setActionLoading(true);
+    const result = await deleteFeedback(selectedFeedback.id);
+
+    if (result.success) {
+      setFeedbacks((prev) => prev.filter((f) => f.id !== selectedFeedback.id));
+      setShowDeleteModal(false);
+      setSelectedFeedback(null);
+    } else {
+      alert(result.error || "Failed to delete feedback");
+    }
+
+    setActionLoading(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border border-red-200 shadow-sm">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-medium text-red-900">Error Loading Feedback</h3>
+              <p className="text-sm text-red-700 mt-1">{error}</p>
+              <button
+                onClick={fetchFeedback}
+                className="mt-3 text-sm font-medium text-red-600 hover:text-red-700 underline"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -140,7 +235,11 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
                 className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 <option value="all">All Category</option>
-                {categories.map((cat) => (<option key={cat} value={cat}>{cat}</option>))}
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -152,7 +251,11 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
                 className="pl-10 pr-8 py-2 text-sm border border-gray-200 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 <option value="all">All Rating</option>
-                {[5, 4, 3, 2, 1].map((r) => (<option key={r} value={r}>{r} Star{r > 1 ? "s" : ""}</option>))}
+                {[5, 4, 3, 2, 1].map((r) => (
+                  <option key={r} value={r}>
+                    {r} Star{r > 1 ? "s" : ""}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -178,22 +281,33 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
                       <User className="w-5 h-5 text-gray-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-gray-900">{feedback.residentName}</h3>
-                      <p className="text-xs text-gray-500">{feedback.residentEmail}</p>
+                      <h3 className="font-medium text-gray-900">{feedback.residents.name}</h3>
+                      <p className="text-xs text-gray-500">{feedback.residents.users.email}</p>
                       <div className="flex items-center gap-1.5 my-2">
                         {[1, 2, 3, 4, 5].map((star) => (
                           <Star
                             key={star}
-                            className={`w-3.5 h-3.5 ${star <= feedback.rating ? "fill-yellow-400 text-yellow-400" : "fill-transparent text-gray-300"}`}
+                            className={`w-3.5 h-3.5 ${
+                              star <= feedback.rating
+                                ? "fill-yellow-400 text-yellow-400"
+                                : "fill-transparent text-gray-300"
+                            }`}
                           />
                         ))}
-                        <span className="text-xs text-gray-500">{ratingLabels[feedback.rating]}</span>
+                        <span className="text-xs text-gray-500 ml-1">
+                          {ratingLabels[feedback.rating]}
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-600">{feedback.content}</p>
+                      <p className="text-sm text-gray-600 mb-2">{feedback.comments}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                          {feedback.category}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <span className="text-xs text-gray-500">{formatDate(feedback.createdAt)}</span>
+                    <span className="text-xs text-gray-500">{formatDate(feedback.submitted_at)}</span>
                     <button
                       onClick={() => handleRemoveClick(feedback)}
                       className={`p-1.5 rounded-lg transition-colors ${
@@ -202,7 +316,11 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
                           : "text-red-400 hover:text-red-600 hover:bg-red-50"
                       }`}
                     >
-                      {role === "staff" ? <Archive className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                      {role === "staff" ? (
+                        <Archive className="w-4 h-4" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -230,8 +348,25 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
             <h3 className="text-lg font-semibold mb-2">Archive Feedback?</h3>
             <p className="text-sm text-gray-500 mb-5">This feedback will be moved to archive.</p>
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => { setShowArchiveModal(false); setSelectedFeedback(null); }}>Cancel</Button>
-              <Button className="flex-1 bg-yellow-600 hover:bg-yellow-700" onClick={handleArchiveConfirm}>Archive</Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowArchiveModal(false);
+                  setSelectedFeedback(null);
+                }}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-yellow-600 hover:bg-yellow-700"
+                onClick={handleArchiveConfirm}
+                disabled={actionLoading}
+              >
+                {actionLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Archive
+              </Button>
             </div>
           </div>
         </div>
@@ -247,8 +382,25 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
             <h3 className="text-lg font-semibold mb-2">Delete Feedback?</h3>
             <p className="text-sm text-gray-500 mb-5">This action cannot be undone.</p>
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => { setShowDeleteModal(false); setSelectedFeedback(null); }}>Cancel</Button>
-              <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={handleDeleteConfirm}>Delete</Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setSelectedFeedback(null);
+                }}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700"
+                onClick={handleDeleteConfirm}
+                disabled={actionLoading}
+              >
+                {actionLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Delete
+              </Button>
             </div>
           </div>
         </div>

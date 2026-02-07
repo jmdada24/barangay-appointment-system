@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Archive,
   Calendar,
@@ -12,9 +13,12 @@ import {
   Trash2,
   User,
   X,
+  Lock,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { createClient } from "@/utils/supabase/client";
 
 type ArchivedItemType = "appointment" | "resident" | "announcement" | "feedback";
 
@@ -71,7 +75,7 @@ const mockArchivedItems: ArchivedItem[] = [
     title: "Business Clearance - ABC Store",
     description: "Appointment completed on January 8, 2026",
     archivedAt: "2026-01-10",
-    archivedBy: "Staff",
+    archivedBy: "Admin",
     originalData: { service: "Business Clearance", resident: "Jose Garcia" },
   },
   {
@@ -147,6 +151,9 @@ function capitalizeFirst(str: string) {
 }
 
 export default function AdminArchivePage() {
+  const router = useRouter();
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>(mockArchivedItems);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<ArchivedItemType | "all">("all");
@@ -155,6 +162,36 @@ export default function AdminArchivePage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ArchivedItem | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Check user role on mount
+  useEffect(() => {
+    async function checkAuthorization() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push("/");
+        return;
+      }
+
+      const { data: userRecord } = await supabase
+        .from("users")
+        .select("role")
+        .eq("auth_id", user.id)
+        .single();
+
+      if (userRecord?.role === "admin") {
+        setIsAuthorized(true);
+      } else {
+        router.push("/staff");
+      }
+
+      setIsLoading(false);
+    }
+
+    checkAuthorization();
+  }, [router]);
 
   // Stats
   const stats = useMemo(() => {
@@ -199,6 +236,34 @@ export default function AdminArchivePage() {
     return result;
   }, [archivedItems, searchQuery, typeFilter, sortOrder]);
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // If not authorized, show access denied
+  if (!isAuthorized) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="text-center space-y-4">
+          <Lock className="w-16 h-16 text-red-500 mx-auto" />
+          <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
+          <p className="text-gray-600 max-w-md">
+            The archive section is only available to administrators. Staff members do not have
+            access to this feature.
+          </p>
+          <Button onClick={() => router.push("/staff")} className="mt-4">
+            Go to Staff Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   function handleViewClick(item: ArchivedItem) {
     setSelectedItem(item);
     setShowViewModal(true);
@@ -214,23 +279,38 @@ export default function AdminArchivePage() {
     setShowDeleteModal(true);
   }
 
-  function handleRestoreConfirm() {
+  async function handleRestoreConfirm() {
     if (!selectedItem) return;
-    // TODO: Restore item to original location
+    setActionLoading(true);
+
     setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
     setShowRestoreModal(false);
     setSelectedItem(null);
+
+    setActionLoading(false);
   }
 
-  function handleDeleteConfirm() {
+  async function handleDeleteConfirm() {
     if (!selectedItem) return;
+    setActionLoading(true);
+
     setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
     setShowDeleteModal(false);
     setSelectedItem(null);
+
+    setActionLoading(false);
   }
 
   return (
     <div className="space-y-6">
+      {/* Admin Badge */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+        <Lock className="w-5 h-5 text-blue-600" />
+        <p className="text-sm font-medium text-blue-900">
+          Admin Only - Archive section is restricted to administrators only.
+        </p>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => {
@@ -330,7 +410,7 @@ export default function AdminArchivePage() {
                           </span>
                         </div>
                         <p className="text-sm text-gray-500 mb-2">{item.description}</p>
-                        <div className="flex items-center gap-4 text-xs text-gray-400">
+                        <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
                             Archived: {formatDate(item.archivedAt)}
@@ -379,7 +459,7 @@ export default function AdminArchivePage() {
                 <p className="text-sm text-gray-500">
                   {searchQuery || typeFilter !== "all"
                     ? "Try adjusting your search or filters."
-                    : "Items you archive will appear here."}
+                    : "Items you delete will appear here."}
                 </p>
               </div>
             )}
@@ -389,15 +469,12 @@ export default function AdminArchivePage() {
 
       {/* View Details Modal */}
       {showViewModal && selectedItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl animate-in slide-in-from-bottom-4 duration-300">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Archived Item Details</h2>
               <button
-                onClick={() => {
-                  setShowViewModal(false);
-                  setSelectedItem(null);
-                }}
+                onClick={() => setShowViewModal(false)}
                 className="p-1 text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
@@ -433,7 +510,7 @@ export default function AdminArchivePage() {
               </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Original Data</p>
-                <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-auto max-h-32">
+                <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-auto max-h-32 border border-gray-200">
                   {JSON.stringify(selectedItem.originalData, null, 2)}
                 </pre>
               </div>
@@ -443,10 +520,7 @@ export default function AdminArchivePage() {
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => {
-                  setShowViewModal(false);
-                  setSelectedItem(null);
-                }}
+                onClick={() => setShowViewModal(false)}
               >
                 Close
               </Button>
@@ -467,8 +541,8 @@ export default function AdminArchivePage() {
 
       {/* Restore Confirmation Modal */}
       {showRestoreModal && selectedItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-sm w-full p-6">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-lg max-w-sm w-full p-6 shadow-xl animate-in slide-in-from-bottom-4 duration-300">
             <div className="text-center">
               <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <RotateCcw className="w-7 h-7 text-green-600" />
@@ -482,17 +556,17 @@ export default function AdminArchivePage() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => {
-                    setShowRestoreModal(false);
-                    setSelectedItem(null);
-                  }}
+                  onClick={() => setShowRestoreModal(false)}
+                  disabled={actionLoading}
                 >
                   Cancel
                 </Button>
                 <Button
                   className="flex-1 bg-green-600 hover:bg-green-700"
                   onClick={handleRestoreConfirm}
+                  disabled={actionLoading}
                 >
+                  {actionLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                   Restore
                 </Button>
               </div>
@@ -503,8 +577,8 @@ export default function AdminArchivePage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && selectedItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-sm w-full p-6">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-lg max-w-sm w-full p-6 shadow-xl animate-in slide-in-from-bottom-4 duration-300">
             <div className="text-center">
               <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Trash2 className="w-7 h-7 text-red-600" />
@@ -518,17 +592,17 @@ export default function AdminArchivePage() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setSelectedItem(null);
-                  }}
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={actionLoading}
                 >
                   Cancel
                 </Button>
                 <Button
                   className="flex-1 bg-red-600 hover:bg-red-700"
                   onClick={handleDeleteConfirm}
+                  disabled={actionLoading}
                 >
+                  {actionLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                   Delete
                 </Button>
               </div>
