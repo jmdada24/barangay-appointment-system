@@ -9,7 +9,6 @@ import {
   createAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
-  archiveAnnouncement,
 } from "@/actions/announcements";
 
 type UserRole = "admin" | "staff";
@@ -155,7 +154,7 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
     if (!selectedAnnouncement) return;
 
     setActionLoading(true);
-    const result = await archiveAnnouncement(selectedAnnouncement.id);
+    const result = await deleteAnnouncement(selectedAnnouncement.id);
 
     if (result.success) {
       setAnnouncements((prev) =>
@@ -225,6 +224,7 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
         <Button
           onClick={() => setShowCreateModal(true)}
           className="bg-primary hover:bg-primary/90"
+          size="lg"
         >
           <Plus className="w-4 h-4 mr-2" />
           New Announcement

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Archive,
   Calendar,
@@ -20,10 +21,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
 
+// ✅ import server actions
+import {
+  getArchivedItems,
+  restoreArchivedItem,
+  deleteArchivedItem,
+} from "@/actions/archive";
+
 type ArchivedItemType = "appointment" | "resident" | "announcement" | "feedback";
 
 type ArchivedItem = {
-  id: string;
+  id: number;
   type: ArchivedItemType;
   title: string;
   description: string;
@@ -31,63 +39,6 @@ type ArchivedItem = {
   archivedBy: string;
   originalData: Record<string, unknown>;
 };
-
-const mockArchivedItems: ArchivedItem[] = [
-  {
-    id: "1",
-    type: "appointment",
-    title: "Barangay Clearance - Juan Dela Cruz",
-    description: "Appointment completed on January 10, 2026",
-    archivedAt: "2026-01-15",
-    archivedBy: "Admin",
-    originalData: { service: "Barangay Clearance", resident: "Juan Dela Cruz" },
-  },
-  {
-    id: "2",
-    type: "resident",
-    title: "Maria Santos",
-    description: "Account deactivated - moved to another barangay",
-    archivedAt: "2026-01-14",
-    archivedBy: "Admin",
-    originalData: { email: "maria.santos@email.com", contact: "09123456789" },
-  },
-  {
-    id: "3",
-    type: "announcement",
-    title: "Holiday Schedule 2025",
-    description: "Expired announcement from December 2025",
-    archivedAt: "2026-01-02",
-    archivedBy: "Admin",
-    originalData: { type: "info", content: "Office closed on Dec 25-26, 2025" },
-  },
-  {
-    id: "4",
-    type: "feedback",
-    title: "Feedback from Pedro Reyes",
-    description: "Resolved complaint about waiting time",
-    archivedAt: "2026-01-12",
-    archivedBy: "Admin",
-    originalData: { rating: 2, category: "Complaints" },
-  },
-  {
-    id: "5",
-    type: "appointment",
-    title: "Business Clearance - ABC Store",
-    description: "Appointment completed on January 8, 2026",
-    archivedAt: "2026-01-10",
-    archivedBy: "Admin",
-    originalData: { service: "Business Clearance", resident: "Jose Garcia" },
-  },
-  {
-    id: "6",
-    type: "announcement",
-    title: "System Maintenance Notice",
-    description: "Completed maintenance notification",
-    archivedAt: "2026-01-05",
-    archivedBy: "Admin",
-    originalData: { type: "urgent", content: "System maintenance on Jan 5" },
-  },
-];
 
 const itemTypes: { value: ArchivedItemType | "all"; label: string }[] = [
   { value: "all", label: "All Types" },
@@ -154,21 +105,53 @@ export default function AdminArchivePage() {
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>(mockArchivedItems);
+
+  const [archivedItems, setArchivedItems] = useState<ArchivedItem[]>([]);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<ArchivedItemType | "all">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ArchivedItem | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
 
-  // Check user role on mount
+  const [actionLoading, setActionLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchArchive = useCallback(async () => {
+    setFetchError(null);
+    const res = await getArchivedItems();
+
+    if (!res.success) {
+      setFetchError(res.error ?? "Failed to load archive");
+      toast.error(res.error ?? "Failed to load archive");
+      return;
+    }
+
+    const rows = (res.data ?? []) as any[];
+
+    const mapped: ArchivedItem[] = rows.map((row) => ({
+      id: Number(row.id),
+      type: row.type as ArchivedItemType,
+      title: row.title ?? "",
+      description: row.description ?? "",
+      archivedAt: row.archived_at,
+      archivedBy: row.archivedByEmail ?? "Unknown",
+      originalData: (row.original_data ?? {}) as Record<string, unknown>,
+    }));
+
+    setArchivedItems(mapped);
+  }, []);
+
+  // Check user role on mount, then load archive
   useEffect(() => {
-    async function checkAuthorization() {
+    async function init() {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) {
         router.push("/");
@@ -183,15 +166,17 @@ export default function AdminArchivePage() {
 
       if (userRecord?.role === "admin") {
         setIsAuthorized(true);
+        await fetchArchive();
       } else {
         router.push("/staff");
+        return;
       }
 
       setIsLoading(false);
     }
 
-    checkAuthorization();
-  }, [router]);
+    init();
+  }, [router, fetchArchive]);
 
   // Stats
   const stats = useMemo(() => {
@@ -236,7 +221,6 @@ export default function AdminArchivePage() {
     return result;
   }, [archivedItems, searchQuery, typeFilter, sortOrder]);
 
-  // Loading state
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -245,7 +229,6 @@ export default function AdminArchivePage() {
     );
   }
 
-  // If not authorized, show access denied
   if (!isAuthorized) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -283,9 +266,30 @@ export default function AdminArchivePage() {
     if (!selectedItem) return;
     setActionLoading(true);
 
-    setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
-    setShowRestoreModal(false);
-    setSelectedItem(null);
+    // ✅ Show loading toast
+    const loadingToast = toast.loading("Restoring item...");
+
+    const res = await restoreArchivedItem(selectedItem.id);
+
+    if (res.success) {
+      setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
+      setShowRestoreModal(false);
+      
+      // ✅ Replace loading toast with success
+      toast.success(`"${selectedItem.title}" has been restored successfully`, {
+        id: loadingToast,
+        duration: 4000,
+        icon: "✅",
+      });
+
+      setSelectedItem(null);
+    } else {
+      // ✅ Replace loading toast with error
+      toast.error(res.error ?? "Failed to restore item", {
+        id: loadingToast,
+        duration: 4000,
+      });
+    }
 
     setActionLoading(false);
   }
@@ -294,9 +298,30 @@ export default function AdminArchivePage() {
     if (!selectedItem) return;
     setActionLoading(true);
 
-    setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
-    setShowDeleteModal(false);
-    setSelectedItem(null);
+    // ✅ Show loading toast
+    const loadingToast = toast.loading("Deleting item permanently...");
+
+    const res = await deleteArchivedItem(selectedItem.id);
+
+    if (res.success) {
+      setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
+      setShowDeleteModal(false);
+      
+      // ✅ Replace loading toast with success
+      toast.success(`"${selectedItem.title}" has been permanently deleted`, {
+        id: loadingToast,
+        duration: 4000,
+        icon: "🗑️",
+      });
+
+      setSelectedItem(null);
+    } else {
+      // ✅ Replace loading toast with error
+      toast.error(res.error ?? "Failed to delete item", {
+        id: loadingToast,
+        duration: 4000,
+      });
+    }
 
     setActionLoading(false);
   }
@@ -310,6 +335,16 @@ export default function AdminArchivePage() {
           Admin Only - Archive section is restricted to administrators only.
         </p>
       </div>
+
+      {/* Error Alert */}
+      {fetchError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-red-800">{fetchError}</p>
+          <Button variant="outline" onClick={fetchArchive} disabled={actionLoading}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -392,14 +427,12 @@ export default function AdminArchivePage() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
-                      {/* Type Icon */}
                       <div
                         className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${styles.bg}`}
                       >
                         <TypeIcon className={`w-5 h-5 ${styles.text}`} />
                       </div>
 
-                      {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <h3 className="font-medium text-gray-900">{item.title}</h3>
@@ -423,12 +456,12 @@ export default function AdminArchivePage() {
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button
                         onClick={() => handleViewClick(item)}
                         className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                         title="View Details"
+                        disabled={actionLoading}
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -436,6 +469,7 @@ export default function AdminArchivePage() {
                         onClick={() => handleRestoreClick(item)}
                         className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                         title="Restore"
+                        disabled={actionLoading}
                       >
                         <RotateCcw className="w-4 h-4" />
                       </button>
@@ -443,6 +477,7 @@ export default function AdminArchivePage() {
                         onClick={() => handleDeleteClick(item)}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         title="Delete Permanently"
+                        disabled={actionLoading}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -517,11 +552,7 @@ export default function AdminArchivePage() {
             </div>
 
             <div className="flex gap-3 mt-6">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowViewModal(false)}
-              >
+              <Button variant="outline" className="flex-1" onClick={() => setShowViewModal(false)}>
                 Close
               </Button>
               <Button
@@ -549,9 +580,11 @@ export default function AdminArchivePage() {
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Restore Item?</h3>
               <p className="text-sm text-gray-500 mb-5">
-                Are you sure you want to restore "{selectedItem.title}"? This will move it back to
-                its original location.
+                Are you sure you want to restore <strong>"{selectedItem.title}"</strong>?
+                <br />
+                This will move it back to its original location.
               </p>
+
               <div className="flex gap-3">
                 <Button
                   variant="outline"
@@ -585,9 +618,11 @@ export default function AdminArchivePage() {
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Permanently?</h3>
               <p className="text-sm text-gray-500 mb-5">
-                Are you sure you want to permanently delete "{selectedItem.title}"? This action
-                cannot be undone.
+                Are you sure you want to permanently delete <strong>"{selectedItem.title}"</strong>?
+                <br />
+                <span className="text-red-600 font-medium">This action cannot be undone.</span>
               </p>
+
               <div className="flex gap-3">
                 <Button
                   variant="outline"
@@ -603,7 +638,7 @@ export default function AdminArchivePage() {
                   disabled={actionLoading}
                 >
                   {actionLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  Delete
+                  Delete Permanently
                 </Button>
               </div>
             </div>

@@ -218,7 +218,9 @@ export default function ResidentBookAppointment() {
   }
 
   async function handleConfirm() {
-    if (!residentId) return;
+    if (!residentId) {
+      return;
+  }
 
     setLoading(true);
 
@@ -586,7 +588,12 @@ export default function ResidentBookAppointment() {
                       {errors.purpose}
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-gray-400">
+                  <p
+                    className={[
+                      "mt-1 text-xs",
+                      formData.purpose.length < 10 ? "text-gray-400" : "text-green-600",
+                    ].join(" ")}
+                  >
                     {formData.purpose.length}/10 minimum characters
                   </p>
                 </div>

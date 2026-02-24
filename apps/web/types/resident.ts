@@ -7,6 +7,7 @@ export type Resident = {
   address: string | null;
   phone_number: string | null;
   valid_id_url: string | null;
+  face_photo_url: string | null;
   verification_status: VerificationStatus;
   birthdate: string | null;
   sex: string | null;
@@ -30,6 +31,7 @@ export type CreateResidentInput = {
   phone_number?: string;
   birthdate?: string;
   valid_id_url?: string;
+  face_photo_url?: string;
   sex?: string;
 };
 
@@ -40,6 +42,7 @@ export type UpdateResidentInput = {
   birthdate?: string;
   verification_status?: VerificationStatus;
   valid_id_url?: string;
+  face_photo_url?: string;
   sex?: string;
   must_change_password?: boolean;
 };

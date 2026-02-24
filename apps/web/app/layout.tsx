@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Manrope } from "next/font/google";
 import "./globals.css";
+import { Toaster } from "sonner";
+import FloatingChatbot from '@/components/chatbot/FloatingChatbot'
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -14,10 +16,6 @@ export const metadata: Metadata = {
   },
   description:
     "Official online service portal for Barangay Bayabas, Matina, Davao City. Book appointments, request documents, view announcements, and submit feedback.",
-  
-  icons: {
-    icon: '/assets/logo/barangay-bayabasLogo.png'
-  },
   
   applicationName: "Barangay Bayabas Appointment System",
   
@@ -47,6 +45,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
  return (
     <html lang="en" className={manrope.variable} suppressHydrationWarning>
+      
       <body 
         className="font-sans antialiased" 
         suppressHydrationWarning
@@ -54,7 +53,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         data-gramm_editor="false"
         data-enable-grammarly="false"
       >
+
         {children}
+        <FloatingChatbot />
+
+        <Toaster position="top-right" />
       </body>
     </html>
   );

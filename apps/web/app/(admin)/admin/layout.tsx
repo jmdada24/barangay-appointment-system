@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { ReactNode } from "react";
 import AppSidebar from "@/components/layout/AppSidebar";
 import AdminMainHeader from "@/components/layout/MainHeader";
@@ -19,19 +22,27 @@ const mainheader: MainHeaderItem[] = [
 ];
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="h-dvh overflow-hidden bg-background">
       <div className="flex h-full">
+        {/* Sidebar */}
         <AppSidebar
           role="admin"
           brandSubtitle="Admin"
-          name="Administrator"
-          email="admin@example.com"
           logoSrc="/assets/logo/barangay-bayabasLogo.png"
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
         />
 
         <main className="flex-1 min-w-0 h-dvh overflow-y-auto">
-          <AdminMainHeader items={mainheader} />
+          {/* Header with menu button */}
+          <AdminMainHeader
+            items={mainheader}
+            onMenuClick={() => setSidebarOpen(true)}
+          />
+
           <div className="p-6">{children}</div>
         </main>
       </div>

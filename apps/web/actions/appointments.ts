@@ -1,10 +1,12 @@
 "use server";
-
+import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { archiveItem } from "@/utils/archive-helper";
+import { revalidatePath } from "next/cache";
 
 export type AppointmentResult = {
   success: boolean;
-  error?: string;
+  error?: string; 
   data?: unknown;
 };
 
@@ -176,16 +178,15 @@ export async function createAppointment(formData: {
     }
 
     // 4. Update schedule booked count
-    const updateColumn =
-      formData.timeSlot === "morning"
-        ? "morning_booked"
-        : "afternoon_booked";
+    // ✅ FIX #2: Type the updateData properly
+    const updateData: Record<string, number> = {
+      [formData.timeSlot === "morning" ? "morning_booked" : "afternoon_booked"]:
+        (formData.timeSlot === "morning" ? schedule.morning_booked : schedule.afternoon_booked) + 1,
+    };
 
     const { error: updateError } = await supabase
       .from("schedules")
-      .update({
-        [updateColumn]: schedule[updateColumn] + 1,
-      })
+      .update(updateData)
       .eq("id", formData.scheduleId);
 
     if (updateError) {
@@ -304,11 +305,9 @@ export async function cancelAppointment(
     }
 
     // 3. Decrease schedule booked count
-    const updateColumn =
-      appointment.time_slot === "morning"
-        ? "morning_booked"
-        : "afternoon_booked";
-
+    // ✅ FIX #3: Type the updateData properly
+    const updateColumn = appointment.time_slot === "morning" ? "morning_booked" : "afternoon_booked";
+    
     const { data: schedule, error: scheduleError } = await supabase
       .from("schedules")
       .select(updateColumn)
@@ -316,11 +315,13 @@ export async function cancelAppointment(
       .single();
 
     if (!scheduleError && schedule) {
+      const decrementData: Record<string, number> = {
+        [updateColumn]: Math.max(0, (schedule as any)[updateColumn] - 1),
+      };
+      
       await supabase
         .from("schedules")
-        .update({
-          [updateColumn]: Math.max(0, schedule[updateColumn] - 1),
-        })
+        .update(decrementData)
         .eq("id", appointment.schedule_id);
     }
 
@@ -335,65 +336,101 @@ export async function cancelAppointment(
   }
 }
 
-/**
- * Delete appointment (admin only)
- */
+// ============================================
+// DELETE APPOINTMENT (Admin only) - TWO STAGE WITH ARCHIVE
+// ============================================
 export async function deleteAppointment(
   appointmentId: number
 ): Promise<AppointmentResult> {
   try {
-    const supabase = createAdminClient();
+    const serverClient = await createClient();
+    const adminClient = createAdminClient();
 
-    // Get appointment first
-    const { data: appointment, error: fetchError } = await supabase
+    const {
+      data: { user: currentUser },
+    } = await serverClient.auth.getUser();
+
+    if (!currentUser) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const { data: appointment, error: fetchError } = await adminClient
       .from("appointments")
-      .select("*")
+      .select(
+        `
+        *,
+        residents (name),
+        services (service_name),
+        schedules (date)
+      `
+      )
       .eq("id", appointmentId)
       .single();
 
     if (fetchError || !appointment) {
-      return { success: false, error: "Appointment not found" };
+      return {
+        success: false,
+        error: fetchError?.message || "Appointment not found",
+      };
     }
 
-    // Delete appointment
-    const { error: deleteError } = await supabase
+    const residentName = (appointment.residents as { name: string })?.name || "Unknown";
+    const serviceName =
+      (appointment.services as { service_name: string })?.service_name ||
+      "Unknown Service";
+    const scheduleDate = (appointment.schedules as { date: string })?.date || "Unknown";
+
+    await archiveItem({
+      type: "appointment",
+      itemId: appointmentId,
+      title: `${residentName} - ${serviceName}`,
+      description: `Scheduled: ${scheduleDate} | Time Slot: ${appointment.time_slot} | Status: ${appointment.status}`,
+      originalData: appointment as Record<string, unknown>,
+      archivedBy: currentUser.id,
+    });
+
+    const { error: deleteError } = await adminClient
       .from("appointments")
       .delete()
       .eq("id", appointmentId);
 
     if (deleteError) {
-      console.error("Delete appointment error:", deleteError);
       return { success: false, error: deleteError.message };
     }
 
-    // Decrease schedule booked count
     const updateColumn =
       appointment.time_slot === "morning"
         ? "morning_booked"
         : "afternoon_booked";
 
-    const { data: schedule, error: scheduleError } = await supabase
+    const { data: schedule, error: scheduleError } = await adminClient
       .from("schedules")
       .select(updateColumn)
       .eq("id", appointment.schedule_id)
       .single();
 
     if (!scheduleError && schedule) {
-      await supabase
+      const decrementData: Record<string, number> = {
+        [updateColumn]: Math.max(0, (schedule as any)[updateColumn] - 1),
+      };
+      
+      await adminClient
         .from("schedules")
-        .update({
-          [updateColumn]: Math.max(0, schedule[updateColumn] - 1),
-        })
+        .update(decrementData)
         .eq("id", appointment.schedule_id);
     }
 
-    return { success: true, data: { message: "Appointment deleted" } };
+    revalidatePath("/admin/appointments");
+    revalidatePath("/staff/appointments");
+    revalidatePath("/resident/appointments");
+
+    return { success: true, data: { error: undefined } }; // ✅ FIX #1: Changed from null to undefined
   } catch (error) {
-    console.error("Unexpected error in deleteAppointment:", error);
+    console.error("Error deleting appointment:", error);
     return {
       success: false,
       error:
-        error instanceof Error ? error.message : "An unexpected error occurred",
+        error instanceof Error ? error.message : "Failed to delete appointment",
     };
   }
 }
@@ -458,8 +495,7 @@ export async function getAvailableSchedules(): Promise<AppointmentResult> {
   }
 }
 
-
-export async function getAppointmentsStats(): Promise<FeedbackResult> {
+export async function getAppointmentsStats(): Promise<AppointmentResult> {
   try {
     const supabase = createAdminClient();
 
@@ -491,7 +527,7 @@ export async function getAppointmentsStats(): Promise<FeedbackResult> {
   }
 }
 
-export async function getUpcomingAppointments(): Promise<FeedbackResult> {
+export async function getUpcomingAppointments(): Promise<AppointmentResult> {
   try {
     const supabase = createAdminClient();
 
@@ -527,7 +563,7 @@ export async function getUpcomingAppointments(): Promise<FeedbackResult> {
   }
 }
 
-export async function getPendingAppointments(): Promise<FeedbackResult> {
+export async function getPendingAppointments(): Promise<AppointmentResult> {
   try {
     const supabase = createAdminClient();
 

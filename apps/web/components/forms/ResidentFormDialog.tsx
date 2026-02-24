@@ -1,5 +1,4 @@
 "use client";
-import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { useState, useTransition } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
@@ -11,6 +10,7 @@ import {
   RefreshCw,
   CheckCircle,
   KeyRound,
+  Camera,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -35,9 +35,10 @@ import {
 
 import ValidIdUpload from "./ValidIdUpload";
 import { createResident } from "@/actions/residents";
-import { uploadValidId } from "@/actions/auth";
+import { uploadValidId } from "@/actions/valid-id";  
+import { uploadFacePhoto } from "@/actions/face-photos";
+import { CameraCapture } from "@/components/camera-capture";
 
-// Generate a random temporary password
 function generateTempPassword(length: number = 10): string {
   const uppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const lowercase = "abcdefghjkmnpqrstuvwxyz";
@@ -76,7 +77,9 @@ const schema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters."),
   dob: z.string().min(1, "Date of birth is required."),
   sex: z.enum(["male", "female"], { message: "Sex is required." }),
+
 });
+
 
 type FormValues = z.infer<typeof schema>;
 
@@ -95,6 +98,10 @@ export default function ResidentFormDialog({
   const [formError, setFormError] = useState<string | null>(null);
   const [validIdFile, setValidIdFile] = useState<File | null>(null);
   const [validIdError, setValidIdError] = useState<string | null>(null);
+  const [facePhotoFile, setFacePhotoFile] = useState<File | null>(null);
+  const [facePhotoError, setFacePhotoError] = useState<string | null>(null);
+  const [facePhotoPreview, setFacePhotoPreview] = useState<string | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
 
   // Success modal state
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -151,37 +158,65 @@ export default function ResidentFormDialog({
     });
     setValidIdFile(null);
     setValidIdError(null);
+    setFacePhotoFile(null);
+    setFacePhotoError(null);
+    setFacePhotoPreview(null); // ADD THIS
     setFormError(null);
   }
+
+  const handleFacePhotoCapture = (file: File) => {
+    setFacePhotoFile(file);
+    setFacePhotoError(null);
+
+    // Create preview
+    const preview = URL.createObjectURL(file);
+    setFacePhotoPreview(preview);
+  };
+
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
     setValidIdError(null);
+    setFacePhotoError(null);
 
-    // Validate Valid ID
+    // Validate both files
     if (!validIdFile) {
-      setValidIdError("Valid ID is required.");
+      setValidIdError("Valid ID document is required.");
+      return;
+    }
+
+    if (!facePhotoFile) {
+      setFacePhotoError("Resident face photo is required.");
       return;
     }
 
     startTransition(async () => {
       try {
-        // 1. Upload Valid ID first
-        let validIdPath: string | undefined;
+        // 1. Upload Valid ID to valid-ids bucket
+        const validIdFormData = new FormData();
+        validIdFormData.append("file", validIdFile);
 
-        const formData = new FormData();
-        formData.append("file", validIdFile);
-
-        const uploadResult = await uploadValidId(formData);
-
-        if (!uploadResult.success) {
-          setFormError(uploadResult.error || "Failed to upload Valid ID");
+        const validIdResult = await uploadValidId(validIdFormData);
+        if (!validIdResult.success) {
+          setFormError(validIdResult.error || "Failed to upload Valid ID");
           return;
         }
+        // ✅ Use the full URL, not the path
+        const validIdUrl = (validIdResult.data as { url: string }).url;
 
-        validIdPath = (uploadResult.data as { path: string }).path;
+        // 2. Upload Face Photo to face-photos bucket
+        const facePhotoFormData = new FormData();
+        facePhotoFormData.append("file", facePhotoFile);
 
-        // 2. Create the resident
+        const facePhotoResult = await uploadFacePhoto(facePhotoFormData);
+        if (!facePhotoResult.success) {
+          setFormError(facePhotoResult.error || "Failed to upload face photo");
+          return;
+        }
+        // ✅ Use the full URL, not the path
+        const facePhotoUrl = (facePhotoResult.data as { url: string }).url;
+
+        // 3. Create the resident with BOTH photo URLs
         const { error } = await createResident({
           email: values.email,
           password: values.password,
@@ -189,7 +224,8 @@ export default function ResidentFormDialog({
           address: values.address,
           phone_number: values.contactNumber,
           birthdate: values.dob,
-          valid_id_url: validIdPath,
+          valid_id_url: validIdUrl,      // ✅ Full URL
+          face_photo_url: facePhotoUrl,  // ✅ Full URL
           sex: values.sex,
         });
 
@@ -198,13 +234,11 @@ export default function ResidentFormDialog({
           return;
         }
 
-        // Store credentials for success modal
         setCreatedCredentials({
           email: values.email,
           password: values.password,
         });
 
-        // Close form and show success
         onOpenChange(false);
         setShowSuccessModal(true);
         onSuccess();
@@ -402,7 +436,7 @@ export default function ResidentFormDialog({
               )}
             </div>
 
-            
+
             {/* DOB + Sex */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
@@ -451,18 +485,75 @@ export default function ResidentFormDialog({
               </div>
             </div>
 
-
-            {/* Valid ID Upload */}
+            {/* Valid ID Upload Section */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
-                Valid ID <span className="text-red-500">*</span>
+                Valid ID Document <span className="text-red-500">*</span>
               </Label>
               <ValidIdUpload
                 value={validIdFile}
                 onChange={setValidIdFile}
                 disabled={isPending}
-                error={validIdError || undefined}
+                error={validIdError ?? undefined}
               />
+            </div>
+
+            {/* Face Photo Capture Section */}
+            <div className="space-y-4">
+              <Label className="text-sm font-medium">
+                Resident Face Photo <span className="text-red-500">*</span>
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Take a photo of the resident for in-office verification
+              </p>
+
+              {!facePhotoFile ? (
+                <Button
+                  type="button"
+                  onClick={() => setShowCameraModal(true)}
+                  disabled={isPending}
+                  className="w-full h-12 bg-blue-600 hover:bg-blue-700"
+                >
+                  <Camera className="w-4 h-4 mr-2" />
+                  Take Resident Photo
+                </Button>
+              ) : (
+                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30">
+                  <div className="flex items-start gap-4 p-4">
+                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                      <img
+                        src={facePhotoPreview || ""}
+                        alt="Face Photo Preview"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {facePhotoFile.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {(facePhotoFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => {
+                          setFacePhotoFile(null);
+                          setFacePhotoPreview(null);
+                        }}
+                      >
+                        Retake Photo
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {facePhotoError && (
+                <p className="text-sm text-red-600">{facePhotoError}</p>
+              )}
             </div>
 
             <DialogFooter className="gap-2 pt-4">
@@ -487,8 +578,17 @@ export default function ResidentFormDialog({
               </Button>
             </DialogFooter>
           </form>
+          <CameraCapture
+            open={showCameraModal}
+            onOpenChange={setShowCameraModal}
+            onCapture={handleFacePhotoCapture}
+          />
+
+
         </DialogContent>
       </Dialog>
+
+
 
       {/* SUCCESS DIALOG - CREDENTIALS */}
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
@@ -580,6 +680,7 @@ export default function ResidentFormDialog({
           )}
         </DialogContent>
       </Dialog>
+
     </>
   );
 }

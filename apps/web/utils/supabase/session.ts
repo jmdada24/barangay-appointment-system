@@ -38,8 +38,8 @@ export async function updateSession(request: NextRequest) {
   const isAdminRoute = pathname.startsWith("/admin") && !pathname.startsWith("/admin/login");
   const isStaffRoute = pathname.startsWith("/staff");
   const isResidentRoute = pathname.startsWith("/resident");
-  const isAuthRoute = pathname === "/" || pathname === "/register" || pathname === "/verify-otp";
-
+  const isAuthRoute = pathname === "/";
+  
   if (!user) {
     if (isAdminRoute || isStaffRoute) {
       return NextResponse.redirect(new URL("/admin/login", request.url));

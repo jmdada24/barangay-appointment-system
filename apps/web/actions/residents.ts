@@ -3,7 +3,10 @@
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { revalidatePath } from "next/cache";
-import type { CreateResidentInput, UpdateResidentInput, ResidentWithUser } from "@/types/resident";
+import type { CreateResidentInput, UpdateResidentInput, ResidentWithUser, VerificationStatus } from "@/types/resident";
+
+import { archiveItem } from "@/utils/archive-helper";
+
 
 // ============================================
 // FETCH ALL RESIDENTS
@@ -102,6 +105,7 @@ export async function createResident(input: CreateResidentInput) {
         phone_number: input.phone_number || null,
         birthdate: input.birthdate || null,
         valid_id_url: input.valid_id_url || null,
+        face_photo_url: input.face_photo_url,
         sex: input.sex || null,
         verification_status: "verified", // Auto-verify when admin creates
         must_change_password: true, // Force password change on first login
@@ -129,13 +133,20 @@ export async function createResident(input: CreateResidentInput) {
 // ============================================
 // UPDATE RESIDENT
 // ============================================
-export async function updateResident(id: number, input: UpdateResidentInput) {
+export async function updateResident(
+  id: number,
+  input: Partial<UpdateResidentInput>
+) {
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("residents")
     .update({
-      ...input,
+      name: input.name,
+      address: input.address,
+      phone_number: input.phone_number,
+      birthdate: input.birthdate,
+      sex: input.sex,
     })
     .eq("id", id)
     .select()
@@ -151,6 +162,52 @@ export async function updateResident(id: number, input: UpdateResidentInput) {
 
   return { data, error: null };
 }
+
+export async function updateResidentFacePhoto(
+  residentId: number,
+  facePhotoUrl: string,
+  resetVerification: boolean = true
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = createAdminClient();
+
+    const updateData: Record<string, unknown> = {
+      face_photo_url: facePhotoUrl,
+    };
+
+    // Reset verification status to pending if requested
+    if (resetVerification) {
+      updateData.verification_status = "pending";
+    }
+
+    const { error } = await supabase
+      .from("residents")
+      .update(updateData)
+      .eq("id", residentId);
+
+    if (error) {
+      console.error("Update error:", error);
+      return {
+        success: false,
+        error: "Failed to update resident face photo",
+      };
+    }
+
+    revalidatePath("/admin/resident");
+    revalidatePath("/staff/resident");
+
+    return { success: true };
+  } catch (error) {
+    console.error("Update resident face photo error:", error);
+    return {
+      success: false,
+      error: "An unexpected error occurred",
+    };
+  }
+}
+
+
+
 
 // ============================================
 // UPDATE VERIFICATION STATUS
@@ -180,62 +237,95 @@ export async function updateVerificationStatus(
 }
 
 // ============================================
-// DELETE RESIDENT (Admin only)
+// DELETE RESIDENT (Admin only) - TWO STAGE WITH ARCHIVE
 // ============================================
 export async function deleteResident(id: number) {
-  const supabase = createAdminClient();
+  const serverClient = await createClient();
+  const adminClient = createAdminClient();
 
-  // 1. Get the resident to find user_id and auth_id
-  const { data: resident, error: fetchError } = await supabase
-    .from("residents")
-    .select(`
-      user_id,
-      users (
-        auth_id
+  // ✅ FIX: Use serverClient to get the authenticated user
+  const {
+    data: { user: currentUser },
+  } = await serverClient.auth.getUser();
+
+  if (!currentUser) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    // Use adminClient for database operations
+    const { data: resident, error: fetchError } = await adminClient
+      .from("residents")
+      .select(
+        `
+        *,
+        users (
+          auth_id,
+          email
+        )
+      `
       )
-    `)
-    .eq("id", id)
-    .single();
+      .eq("id", id)
+      .single();
 
-  if (fetchError || !resident) {
-    console.error("Error fetching resident for delete:", fetchError);
-    return { success: false, error: fetchError?.message || "Resident not found" };
+    if (fetchError || !resident) {
+      return {
+        success: false,
+        error: fetchError?.message || "Resident not found",
+      };
+    }
+
+    const authId = (resident.users as { auth_id: string })?.auth_id;
+
+    // 2. Archive the resident before deletion
+    await archiveItem({
+      type: "resident",
+      itemId: id,
+      title: resident.name,
+      description: `Address: ${resident.address || "N/A"} | Phone: ${resident.phone_number || "N/A"}`,
+      originalData: resident as Record<string, unknown>,
+      archivedBy: currentUser.id,
+    });
+
+    // 3. Delete resident (cascades to appointments, feedback)
+    const { error: residentError } = await adminClient
+      .from("residents")
+      .delete()
+      .eq("id", id);
+
+    if (residentError) {
+      return { success: false, error: residentError.message };
+    }
+
+    // 4. Delete user record
+    if (resident.user_id) {
+      await adminClient.from("users").delete().eq("id", resident.user_id);
+    }
+
+    // 5. Delete auth user
+    if (authId) {
+      await adminClient.auth.admin.deleteUser(authId);
+    }
+
+    revalidatePath("/admin/resident");
+    revalidatePath("/staff/resident");
+
+    return { success: true, error: null };
+  } catch (error) {
+    console.error("Error deleting resident:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to delete resident",
+    };
   }
-
-  const authId = (resident.users as { auth_id: string })?.auth_id;
-
-  // 2. Delete resident (cascades to appointments, feedback)
-  const { error: residentError } = await supabase
-    .from("residents")
-    .delete()
-    .eq("id", id);
-
-  if (residentError) {
-    console.error("Error deleting resident:", residentError);
-    return { success: false, error: residentError.message };
-  }
-
-  // 3. Delete user record
-  if (resident.user_id) {
-    await supabase.from("users").delete().eq("id", resident.user_id);
-  }
-
-  // 4. Delete auth user
-  if (authId) {
-    await supabase.auth.admin.deleteUser(authId);
-  }
-
-  revalidatePath("/admin/resident");
-  revalidatePath("/staff/resident");
-
-  return { success: true, error: null };
 }
 
 // ============================================
-// ARCHIVE RESIDENT (Staff - soft delete)
+// ARCHIVE RESIDENT (DEPRECATED - use deleteResident)
 // ============================================
 export async function archiveResident(id: number) {
-  return await updateVerificationStatus(id, "rejected");
+  // Now just calls delete which archives first
+  return deleteResident(id);
 }
 
 // ============================================

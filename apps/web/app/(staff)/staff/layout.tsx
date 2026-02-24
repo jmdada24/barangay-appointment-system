@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { ReactNode } from "react";
 import AppSidebar from "@/components/layout/AppSidebar";
 import MainHeader from "@/components/layout/MainHeader";
@@ -18,12 +21,25 @@ const mainheader: MainHeaderItem[] = [
 ];
 
 export default function StaffLayout({ children }: { children: ReactNode }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-    <div className="min-h-dvh bg-background">
-      <div className="flex">
-        <AppSidebar role="staff" name="Staff" email="staff@example.com" />
+    <div className="h-dvh overflow-hidden bg-background">
+      <div className="flex h-full">
+        {/* Sidebar */}
+        <AppSidebar
+          role="staff"
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
+
         <main className="flex-1 min-w-0 h-dvh overflow-y-auto">
-          <MainHeader items={mainheader} />
+          {/* Header with menu button */}
+          <MainHeader
+            items={mainheader}
+            onMenuClick={() => setSidebarOpen(true)}
+          />
+
           <div className="p-6">{children}</div>
         </main>
       </div>

@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Calendar, Clock, Loader2, AlertCircle, X } from "lucide-react";
+import { ArrowRight, Calendar, Clock, Loader2, AlertCircle, X, Star, CheckCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getResidentAppointments, cancelAppointment } from "@/actions/appointments";
+import { checkFeedbackExists } from "@/actions/feedback";
 import { createClient } from "@/utils/supabase/client";
 
 type AppointmentStatus = "pending" | "approved" | "rejected" | "completed" | "cancelled";
@@ -103,6 +104,7 @@ interface ViewDetailsModalProps {
   onClose: () => void;
   onCancelAppointment: (appointmentId: number) => Promise<void>;
   cancelling: number | null;
+  onRateClick: (appointmentId: number) => void;
 }
 
 function ViewDetailsModal({
@@ -110,10 +112,12 @@ function ViewDetailsModal({
   onClose,
   onCancelAppointment,
   cancelling,
+  onRateClick,
 }: ViewDetailsModalProps) {
   if (!appointment) return null;
 
   const canCancel = appointment.status === "pending";
+  const canRate = appointment.status === "completed";
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -159,11 +163,9 @@ function ViewDetailsModal({
             <p className="text-xs text-gray-500 font-medium mb-1">Status</p>
             <div className="inline-flex">
               <span
-                className={`text-xs font-medium px-3 py-1 rounded-full border ${
-                  getStatusStyles(appointment.status as AppointmentStatus).bg
-                } ${getStatusStyles(appointment.status as AppointmentStatus).border} ${
-                  getStatusStyles(appointment.status as AppointmentStatus).text
-                }`}
+                className={`text-xs font-medium px-3 py-1 rounded-full border ${getStatusStyles(appointment.status as AppointmentStatus).bg
+                  } ${getStatusStyles(appointment.status as AppointmentStatus).border} ${getStatusStyles(appointment.status as AppointmentStatus).text
+                  }`}
               >
                 {capitalizeFirst(appointment.status)}
               </span>
@@ -191,7 +193,7 @@ function ViewDetailsModal({
           )}
         </div>
 
-        <div className="border-t border-gray-100 pt-4 mt-6 flex gap-2">
+        <div className="border-t border-gray-100 pt-4 mt-6 flex gap-2 flex-wrap">
           {canCancel && (
             <Button
               variant="outline"
@@ -207,6 +209,18 @@ function ViewDetailsModal({
               ) : (
                 "Cancel Appointment"
               )}
+            </Button>
+          )}
+          {canRate && (
+            <Button
+              className="flex-1 bg-green-600 hover:bg-green-700"
+              onClick={() => {
+                onRateClick(appointment.id);
+                onClose();
+              }}
+            >
+              <Star className="w-4 h-4 mr-2" />
+              Rate Us
             </Button>
           )}
           <Button
@@ -231,6 +245,7 @@ export default function ResidentAppointment() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [cancelling, setCancelling] = useState<number | null>(null);
   const [residentId, setResidentId] = useState<number | null>(null);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     fetchAppointments();
@@ -241,14 +256,12 @@ export default function ResidentAppointment() {
     setError(null);
 
     try {
-      // Get current user
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) {
         router.push("/");
         return;
       }
 
-      // Get resident ID
       const { data: userRecord } = await supabase
         .from("users")
         .select("id")
@@ -269,11 +282,23 @@ export default function ResidentAppointment() {
 
       setResidentId(residentRecord.id);
 
-      // Fetch appointments
       const result = await getResidentAppointments(residentRecord.id);
 
       if (result.success && result.data) {
-        setAppointments(result.data as Appointment[]);
+        const appointmentsList = result.data as Appointment[];
+        setAppointments(appointmentsList);
+
+        // ✅ NEW: Check which completed appointments already have feedback
+        const feedbackCheckResults = new Set<number>();
+        for (const apt of appointmentsList) {
+          if (apt.status === "completed") {
+            const feedbackCheck = await checkFeedbackExists(apt.id);
+            if (feedbackCheck.exists) {
+              feedbackCheckResults.add(apt.id);
+            }
+          }
+        }
+        setFeedbackSubmitted(feedbackCheckResults);
       } else {
         setError(result.error || "Failed to load appointments");
       }
@@ -297,7 +322,6 @@ export default function ResidentAppointment() {
       const result = await cancelAppointment(appointmentId, residentId);
 
       if (result.success) {
-        // Update local state
         setAppointments((prev) =>
           prev.map((apt) =>
             apt.id === appointmentId ? { ...apt, status: "cancelled" as AppointmentStatus } : apt
@@ -312,6 +336,11 @@ export default function ResidentAppointment() {
     } finally {
       setCancelling(null);
     }
+  }
+
+  function handleRateClick(appointmentId: number) {
+    sessionStorage.setItem("feedbackAppointmentId", appointmentId.toString());
+    router.push("/resident/feedback");
   }
 
   if (loading) {
@@ -351,6 +380,8 @@ export default function ResidentAppointment() {
         {appointments.length > 0 ? (
           appointments.map((appointment) => {
             const statusStyles = getStatusStyles(appointment.status);
+            const canRate = appointment.status === "completed";
+            const alreadyRated = feedbackSubmitted.has(appointment.id);
 
             return (
               <Card key={appointment.id} className="border border-gray-200 shadow-sm">
@@ -400,8 +431,8 @@ export default function ResidentAppointment() {
                     </div>
                   )}
 
-                  {/* Divider */}
-                  <div className="border-t border-gray-100 pt-3 flex items-center justify-end">
+                  {/* Divider & Bottom Actions */}
+                  <div className="border-t border-gray-100 pt-3 flex items-center justify-between gap-3">
                     <button
                       onClick={() => setSelectedAppointment(appointment)}
                       className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-primary transition-colors"
@@ -409,6 +440,28 @@ export default function ResidentAppointment() {
                       View Details
                       <ArrowRight className="w-4 h-4" />
                     </button>
+
+                    {/* ✅ UPDATED: Rate Us Button - Only for completed, and disabled if already rated */}
+                    {canRate && (
+                      <Button
+                        size="sm"
+                        className={alreadyRated ? "bg-gray-400 hover:bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"}
+                        onClick={() => !alreadyRated && handleRateClick(appointment.id)}
+                        disabled={alreadyRated}
+                      >
+                        {alreadyRated ? (
+                          <>
+                            <CheckCircle className="w-4 h-4 mr-1.5" />
+                            Feedback Submitted
+                          </>
+                        ) : (
+                          <>
+                            <Star className="w-4 h-4 mr-1.5" />
+                            Rate Us
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -439,6 +492,7 @@ export default function ResidentAppointment() {
         onClose={() => setSelectedAppointment(null)}
         onCancelAppointment={handleCancelAppointment}
         cancelling={cancelling}
+        onRateClick={handleRateClick}
       />
     </div>
   );

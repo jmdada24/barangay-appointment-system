@@ -10,18 +10,36 @@ type MainHeaderItem = {
 };
 
 function matchPath(pathname: string, href: string) {
-  if (href === "/admin" || href === "/resident" || href === "/staff") {
-    return pathname === href;
+  // Normalize paths (remove trailing slashes)
+  const current = pathname.endsWith("/") && pathname.length > 1 
+    ? pathname.slice(0, -1) 
+    : pathname;
+  const target = href.endsWith("/") && href.length > 1 
+    ? href.slice(0, -1) 
+    : href;
+
+  // ✅ NEW: Treat feedback page as part of My Appointments
+  if (target === "/resident/my-appointment") {
+    return (
+      current === target ||
+      current.startsWith(target + "/") ||
+      current === "/resident/feedback"
+    );
   }
-  // exact or nested match
-  return pathname === href || pathname.startsWith(href + "/");
+
+  // Root role routes
+  if (href === "/admin" || href === "/resident" || href === "/staff") {
+    return current === href;
+  }
+
+  // Exact or nested match
+  return current === target || current.startsWith(target + "/");
 }
 
 interface MainHeaderProps {
   items: MainHeaderItem[];
   onMenuClick?: () => void;
 }
-
 export default function MainHeader({ items, onMenuClick }: MainHeaderProps) {
   const pathname = usePathname();
 
@@ -36,10 +54,11 @@ export default function MainHeader({ items, onMenuClick }: MainHeaderProps) {
         {/* Menu Button + Title */}
         <div className="flex items-center gap-4 flex-1 min-w-0">
           <button
-            onClick={onMenuClick}
+            onClick={() => onMenuClick?.()}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
             aria-label="Toggle sidebar"
           >
+            
             <Menu className="h-6 w-6 text-gray-700" />
           </button>
 

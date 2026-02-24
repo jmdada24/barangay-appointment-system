@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useTransition, useState } from "react";
+import { useState, useTransition, useEffect } from "react";  // ADD useEffect
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Eye, X, ZoomIn } from "lucide-react";
+import { Loader2, Camera, Eye } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +26,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { CameraCapture } from "@/components/camera-capture";
+import ValidIdUpload from "./ValidIdUpload";
 import { updateResident } from "@/actions/residents";
-import type { ResidentWithUser } from "@/types/resident";
+import { updateResidentFacePhoto } from "@/actions/residents";
+import { uploadFacePhoto } from "@/actions/face-photos";
+import { uploadValidId } from "@/actions/valid-id";
 
 const contactNumberSchema = z
   .string()
@@ -45,73 +49,168 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-interface ResidentEditDialogProps {
+interface ResidentEditFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  resident: ResidentWithUser | null;
+  resident: {
+    id: number;
+    name: string;
+    address: string;
+    phone_number: string;
+    birthdate: string;
+    sex: "male" | "female";
+    face_photo_url?: string;
+    valid_id_url?: string;
+  } | null;
   onSuccess: () => void;
 }
 
-export default function ResidentEditDialog({
+export default function ResidentEditForm({
   open,
   onOpenChange,
   resident,
   onSuccess,
-}: ResidentEditDialogProps) {
+}: ResidentEditFormProps) {
   const [isPending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
-  const [showValidIdModal, setShowValidIdModal] = useState(false);
+  const [validIdFile, setValidIdFile] = useState<File | null>(null);
+  const [validIdError, setValidIdError] = useState<string | null>(null);
+  const [facePhotoFile, setFacePhotoFile] = useState<File | null>(null);
+  const [facePhotoPreview, setFacePhotoPreview] = useState<string | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [showIdPreview, setShowIdPreview] = useState(false);
 
   const {
     register,
     control,
     handleSubmit,
-    reset,
+    reset,  // ADD reset
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
+    defaultValues: {
+      firstName: "",
+      lastName: "",
+      address: "",
+      contactNumber: "",
+      dob: "",
+      sex: undefined as unknown as "male" | "female",
+    },
   });
 
-  // Populate form when resident changes
+
   useEffect(() => {
     if (resident) {
-      const nameParts = resident.name.split(" ");
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
-
       reset({
-        firstName,
-        lastName,
+        firstName: resident.name.split(" ")[0] || "",
+        lastName: resident.name.split(" ").slice(1).join(" ") || "",
         address: resident.address || "",
         contactNumber: resident.phone_number || "",
         dob: resident.birthdate || "",
-        sex: (resident.sex as "male" | "female") || undefined,
+        sex: resident.sex,
       });
     }
   }, [resident, reset]);
 
+  const handleFacePhotoCapture = (file: File) => {
+    setFacePhotoFile(file);
+    const preview = URL.createObjectURL(file);
+    setFacePhotoPreview(preview);
+  };
   const onSubmit = handleSubmit(async (values) => {
+    // Guard check in event handler instead of top-level
     if (!resident) return;
+
     setFormError(null);
+    setValidIdError(null);
 
     startTransition(async () => {
-      const { error } = await updateResident(resident.id, {
-        name: `${values.firstName} ${values.lastName}`,
-        address: values.address,
-        phone_number: values.contactNumber,
-        birthdate: values.dob,
-        sex: values.sex,
-      });
+      try {
+        // 1. Update basic resident info
+        const { error: updateError } = await updateResident(resident.id, {
+          name: `${values.firstName} ${values.lastName}`,
+          address: values.address,
+          phone_number: values.contactNumber,
+          birthdate: values.dob,
+          sex: values.sex,
+        });
 
-      if (error) {
-        setFormError(error);
-        return;
+        if (updateError) {
+          setFormError(updateError);
+          return;
+        }
+
+        // 2. Upload new valid ID if provided
+        if (validIdFile) {
+          const validIdFormData = new FormData();
+          validIdFormData.append("file", validIdFile);
+
+          const uploadResult = await uploadValidId(validIdFormData);
+          if (!uploadResult.success) {
+            setValidIdError(uploadResult.error || "Failed to upload Valid ID");
+            return;
+          }
+
+          // Get the full URL from upload result
+          const validIdUrl = (uploadResult.data as { url: string }).url;
+
+          // Update the database with the new valid ID URL
+          const { error: idError } = await updateResident(resident.id, {
+            valid_id_url: validIdUrl,
+          });
+
+          if (idError) {
+            setFormError(idError);
+            return;
+          }
+        }
+
+        // 3. Upload new face photo if provided
+        if (facePhotoFile) {
+          const faceFormData = new FormData();
+          faceFormData.append("file", facePhotoFile);
+
+          const uploadResult = await uploadFacePhoto(faceFormData);
+          if (!uploadResult.success) {
+            setFormError(uploadResult.error || "Failed to upload face photo");
+            return;
+          }
+
+          // 4. Update face photo URL and reset verification to pending
+          const facePhotoPath = (uploadResult.data as { path: string }).path;
+          const updatePhotoResult = await updateResidentFacePhoto(
+            resident.id,
+            facePhotoPath,
+            true // Reset verification to pending
+          );
+
+          if (!updatePhotoResult.success) {
+            setFormError(
+              updatePhotoResult.error || "Failed to update face photo"
+            );
+            return;
+          }
+        }
+
+        // Reset and close dialog
+        setValidIdFile(null);
+        setValidIdError(null);
+        setFacePhotoFile(null);
+        setFacePhotoPreview(null);
+        onOpenChange(false);
+        onSuccess();
+      } catch (error) {
+        setFormError(
+          error instanceof Error ? error.message : "Something went wrong."
+        );
       }
-
-      onOpenChange(false);
-      onSuccess();
     });
   });
+
+  // Guard check AFTER all hooks - only affects JSX, not hook order
+  if (!resident) {
+    return null;
+  }
 
   return (
     <>
@@ -121,7 +220,9 @@ export default function ResidentEditDialog({
             <DialogTitle className="text-2xl font-semibold">
               Edit Resident
             </DialogTitle>
-            <DialogDescription>Update resident information</DialogDescription>
+            <DialogDescription>
+              Update resident information and documents
+            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={onSubmit} className="space-y-6">
@@ -131,19 +232,6 @@ export default function ResidentEditDialog({
               </div>
             )}
 
-            {/* Email (disabled) */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Email</Label>
-              <Input
-                className="h-12 text-base bg-gray-50"
-                value={resident?.users?.email || ""}
-                disabled
-              />
-              <p className="text-xs text-muted-foreground">
-                Email cannot be changed
-              </p>
-            </div>
-
             {/* First + Last Name */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
@@ -152,14 +240,11 @@ export default function ResidentEditDialog({
                 </Label>
                 <Input
                   className="h-12 text-base"
-                  placeholder="John"
                   disabled={isPending}
                   {...register("firstName")}
                 />
                 {errors.firstName && (
-                  <p className="text-sm text-red-600">
-                    {errors.firstName.message}
-                  </p>
+                  <p className="text-sm text-red-600">{errors.firstName.message}</p>
                 )}
               </div>
 
@@ -169,14 +254,11 @@ export default function ResidentEditDialog({
                 </Label>
                 <Input
                   className="h-12 text-base"
-                  placeholder="Doe"
                   disabled={isPending}
                   {...register("lastName")}
                 />
                 {errors.lastName && (
-                  <p className="text-sm text-red-600">
-                    {errors.lastName.message}
-                  </p>
+                  <p className="text-sm text-red-600">{errors.lastName.message}</p>
                 )}
               </div>
             </div>
@@ -188,7 +270,6 @@ export default function ResidentEditDialog({
               </Label>
               <Input
                 className="h-12 text-base"
-                placeholder="Purok 1, Barangay Bayabas, Matina, Davao City"
                 disabled={isPending}
                 {...register("address")}
               />
@@ -197,29 +278,27 @@ export default function ResidentEditDialog({
               )}
             </div>
 
-            {/* Contact Number */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">
-                Contact Number <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                className="h-12 text-base"
-                placeholder="09123456789"
-                disabled={isPending}
-                {...register("contactNumber")}
-              />
-              <p className="text-xs text-muted-foreground">
-                Format: 09XXXXXXXXX or +639XXXXXXXXX
-              </p>
-              {errors.contactNumber && (
-                <p className="text-sm text-red-600">
-                  {errors.contactNumber.message}
-                </p>
-              )}
-            </div>
-
-            {/* DOB + Sex */}
+            {/* Contact + DOB */}
             <div className="grid gap-6 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">
+                  Contact Number <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  className="h-12 text-base"
+                  disabled={isPending}
+                  {...register("contactNumber")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Format: 09XXXXXXXXX or +639XXXXXXXXX
+                </p>
+                {errors.contactNumber && (
+                  <p className="text-sm text-red-600">
+                    {errors.contactNumber.message}
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
                   Date of Birth <span className="text-red-500">*</span>
@@ -234,73 +313,225 @@ export default function ResidentEditDialog({
                   <p className="text-sm text-red-600">{errors.dob.message}</p>
                 )}
               </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">
-                  Sex <span className="text-red-500">*</span>
-                </Label>
-                <Controller
-                  control={control}
-                  name="sex"
-                  render={({ field }) => (
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      disabled={isPending}
-                    >
-                      <SelectTrigger className="w-full h-12 min-h-12 text-base">
-                        <SelectValue placeholder="Please Select" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="male">Male</SelectItem>
-                          <SelectItem value="female">Female</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.sex && (
-                  <p className="text-sm text-red-600">{errors.sex.message}</p>
-                )}
-              </div>
             </div>
 
-            {/* Valid ID Section (Read-only) */}
-            {resident?.valid_id_url && (
-              <div className="pt-4 border-t">
-                <p className="text-sm font-medium mb-3">Valid ID Document</p>
-                <div className="relative w-full h-40 rounded-lg border border-border overflow-hidden bg-muted/30 cursor-pointer group"
-                  onClick={() => setShowValidIdModal(true)}>
-                  <img
-                    src={resident.valid_id_url}
-                    alt="Valid ID"
-                    className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-                    <div className="flex flex-col items-center text-white">
-                      <ZoomIn className="w-6 h-6" />
-                      <span className="text-sm mt-2">Click to enlarge</span>
+            {/* Sex */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">
+                Sex <span className="text-red-500">*</span>
+              </Label>
+              <Controller
+                control={control}
+                name="sex"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={isPending}
+                  >
+                    <SelectTrigger className="w-full h-12 min-h-12 text-base">
+                      <SelectValue placeholder="Please Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="male">Male</SelectItem>
+                        <SelectItem value="female">Female</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.sex && (
+                <p className="text-sm text-red-600">{errors.sex.message}</p>
+              )}
+            </div>
+
+            {/* VALID ID SECTION */}
+            <div className="space-y-4 border-t pt-6">
+              <Label className="text-sm font-medium">
+                Valid ID Document
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Upload or replace the resident's valid ID (optional)
+              </p>
+
+              {resident.valid_id_url && !validIdFile && (
+                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                      <img
+                        src={resident.valid_id_url}
+                        alt="Current Valid ID"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        Current Valid ID
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Click below to view full size or upload a new one
+                      </p>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowIdPreview(true)}
+                        >
+                          <Eye className="w-4 h-4 mr-2" />
+                          View Full Size
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setValidIdFile(null)}
+                        >
+                          Replace
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
+              )}
+
+              {!resident.valid_id_url && !validIdFile && (
+                <div className="space-y-2">
+                  <ValidIdUpload
+                    value={validIdFile}
+                    onChange={setValidIdFile}
+                    disabled={isPending}
+                    error={validIdError ?? undefined}
+                  />
+                </div>
+              )}
+
+              {validIdFile && (
+                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                      <img
+                        src={URL.createObjectURL(validIdFile)}
+                        alt="New Valid ID"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {validIdFile.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {(validIdFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => setValidIdFile(null)}
+                      >
+                        Cancel Upload
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {validIdError && (
+                <p className="text-sm text-red-600">{validIdError}</p>
+              )}
+            </div>
+
+            {/* FACE PHOTO SECTION */}
+            <div className="space-y-4 border-t pt-6">
+              <Label className="text-sm font-medium">
+                Resident Face Photo
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Update resident face photo for verification (optional)
+              </p>
+
+              {resident.face_photo_url && !facePhotoFile && (
+                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                      <img
+                        src={resident.face_photo_url}
+                        alt="Current Face Photo"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        Current Photo
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Click "Retake Photo" to capture a new one
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => setShowCameraModal(true)}
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Retake Photo
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!resident.face_photo_url && !facePhotoFile && (
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={() => setShowValidIdModal(true)}
+                  onClick={() => setShowCameraModal(true)}
+                  disabled={isPending}
+                  className="w-full h-12 bg-blue-600 hover:bg-blue-700"
                 >
-                  <Eye className="w-4 h-4 mr-2" />
-                  View Full Size
+                  <Camera className="w-4 h-4 mr-2" />
+                  Take Face Photo
                 </Button>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Valid ID cannot be changed. Contact support if you need to update this document.
-                </p>
-              </div>
-            )}
+              )}
 
-            <DialogFooter className="gap-2 pt-4">
+              {facePhotoFile && (
+                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                      <img
+                        src={facePhotoPreview || ""}
+                        alt="New Face Photo"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {facePhotoFile.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {(facePhotoFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => {
+                          setFacePhotoFile(null);
+                          setFacePhotoPreview(null);
+                        }}
+                      >
+                        Retake Photo
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2 pt-4 border-t">
               <Button
                 type="button"
                 variant="outline"
@@ -323,40 +554,27 @@ export default function ResidentEditDialog({
         </DialogContent>
       </Dialog>
 
-      {/* Valid ID Full Preview Modal */}
-      {showValidIdModal && resident?.valid_id_url && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setShowValidIdModal(false)}
-        >
-          <button
-            onClick={() => setShowValidIdModal(false)}
-            className="absolute top-4 right-4 z-50 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-          >
-            <X className="w-6 h-6 text-white" />
-          </button>
+      <CameraCapture
+        open={showCameraModal}
+        onOpenChange={setShowCameraModal}
+        onCapture={handleFacePhotoCapture}
+      />
 
-          <div
-            className="relative max-w-[90vw] max-h-[90vh] rounded-lg overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {/* Valid ID Preview Modal */}
+      <Dialog open={showIdPreview} onOpenChange={setShowIdPreview}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Valid ID</DialogTitle>
+          </DialogHeader>
+          {resident.valid_id_url && (
             <img
               src={resident.valid_id_url}
-              alt="Valid ID Full Preview"
-              className="max-w-full max-h-[90vh] object-contain rounded-lg"
+              alt="Valid ID"
+              className="w-full rounded-lg"
             />
-
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
-              <p className="text-white text-sm font-medium">
-                {resident.name} - Valid ID
-              </p>
-              <p className="text-white/70 text-xs mt-1">
-                Click outside or press ESC to close
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

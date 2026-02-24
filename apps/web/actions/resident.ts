@@ -84,7 +84,6 @@ export async function getResidentRecentActivity(): Promise<ResidentResult> {
   try {
     const supabase = await createClient();
 
-    // Get current user
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -162,22 +161,27 @@ export async function getResidentRecentActivity(): Promise<ResidentResult> {
         let content = "";
         let icon = "Calendar";
 
+        const serviceName = apt.services?.service_name || "Appointment";
         switch (apt.status) {
           case "approved":
-            title = `${apt.services.service_name} Approved`;
-            content = `Your appointment for ${apt.services.service_name} has been approved`;
+            title = `${serviceName} Approved`;
+            content = `Your appointment for ${serviceName} has been approved`;
             icon = "CircleCheckBig";
             break;
           case "pending":
-            title = `${apt.services.service_name} Pending`;
-            content = `Your ${apt.services.service_name} request is being reviewed`;
+            title = `${serviceName} Pending`;
+            content = `Your ${serviceName} request is being reviewed`;
             icon = "Clock";
             break;
           case "completed":
-            title = `${apt.services.service_name} Completed`;
-            content = `Your ${apt.services.service_name} appointment has been completed`;
+            title = `${serviceName} Completed`;
+            content = `Your ${serviceName} appointment has been completed`;
             icon = "CheckCircle";
             break;
+          default:
+            title = `${serviceName} - ${apt.status.charAt(0).toUpperCase() + apt.status.slice(1)}`;
+            content = `Your ${serviceName} appointment status: ${apt.status}`;
+            icon = "Calendar";
         }
 
         activities.push({
@@ -194,14 +198,17 @@ export async function getResidentRecentActivity(): Promise<ResidentResult> {
     // Add announcements
     if (announcements) {
       announcements.forEach((ann: any) => {
-        activities.push({
-          id: `ann-${ann.id}`,
-          title: ann.title,
-          tag: formatTimeAgo(ann.created_at),
-          content: ann.content,
-          icon: "Calendar",
-          type: "announcement",
-        });
+        // Skip announcements with empty titles
+        if (ann.title?.trim()) {
+          activities.push({
+            id: `ann-${ann.id}`,
+            title: ann.title,
+            tag: formatTimeAgo(ann.created_at),
+            content: ann.content || "(No description)",
+            icon: "Calendar",
+            type: "announcement",
+          });
+        }
       });
     }
 

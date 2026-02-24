@@ -208,12 +208,6 @@ export default function ResidentLogin() {
                   {loading ? "Signing in..." : "Sign In"}
                 </Button>
 
-                <p className="text-center text-base text-muted-foreground">
-                  Don&apos;t have an account?{" "}
-                  <Link href="/register" className="text-primary hover:underline font-medium">
-                    Register here
-                  </Link>
-                </p>
               </form>
             </div>
           </div>

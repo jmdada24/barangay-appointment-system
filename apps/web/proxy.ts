@@ -38,34 +38,9 @@ export async function proxy(request: NextRequest) {
   const isAdminRoute = pathname.startsWith("/admin") && !pathname.startsWith("/admin/login");
   const isStaffRoute = pathname.startsWith("/staff");
   const isResidentRoute = pathname.startsWith("/resident");
-  const isVerifyOtpRoute = pathname === "/verify-otp";
-  const isRegisterRoute = pathname === "/register";
   const isLoginRoute = pathname === "/";
   const isAdminLoginRoute = pathname === "/admin/login";
 
-  if (isVerifyOtpRoute) {
-    const email = request.nextUrl.searchParams.get("email");
-    
-    if (!email) {
-      return NextResponse.redirect(new URL("/register", request.url));
-    }
-
-    if (user) {
-      const { data: userData } = await supabase
-        .from("users")
-        .select("role")
-        .eq("auth_id", user.id)
-        .single();
-
-      if (userData) {
-        const redirectPath = userData.role === "admin" ? "/admin" : 
-                            userData.role === "staff" ? "/staff" : "/resident";
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
-    }
-
-    return supabaseResponse;
-  }
 
   if (!user) {
     if (isAdminRoute || isStaffRoute) {
@@ -102,7 +77,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/resident", request.url));
   }
 
-  if (isLoginRoute || isRegisterRoute || isAdminLoginRoute) {
+    if (isLoginRoute || isAdminLoginRoute) {
     const redirectPath = role === "admin" ? "/admin" : role === "staff" ? "/staff" : "/resident";
     return NextResponse.redirect(new URL(redirectPath, request.url));
   }

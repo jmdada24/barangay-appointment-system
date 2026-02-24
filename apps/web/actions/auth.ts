@@ -14,7 +14,6 @@ function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-
 export async function registerResident(formData: {
   email: string;
   password: string;
@@ -31,7 +30,6 @@ export async function registerResident(formData: {
     try {
       adminClient = createAdminClient();
     } catch (e) {
-      console.error("Admin client error:", e);
       return { success: false, error: "Server configuration error. Please contact support." };
     }
 
@@ -42,7 +40,6 @@ export async function registerResident(formData: {
       .maybeSingle();
 
     if (checkError) {
-      console.error("Check user error:", checkError);
       return { success: false, error: "Failed to check existing account." };
     }
 
@@ -53,18 +50,15 @@ export async function registerResident(formData: {
     const { data: authUsers, error: listError } = await adminClient.auth.admin.listUsers();
     
     if (listError) {
-      console.error("List users error:", listError);
       return { success: false, error: "Failed to verify email availability." };
     }
 
     const existingAuthUser = authUsers?.users?.find((u) => u.email === formData.email);
 
     if (existingAuthUser) {
-      // If auth user exists but not confirmed, delete and recreate
       if (!existingAuthUser.email_confirmed_at) {
         const { error: deleteError } = await adminClient.auth.admin.deleteUser(existingAuthUser.id);
         if (deleteError) {
-          console.error("Delete user error:", deleteError);
           return { success: false, error: "Failed to reset incomplete registration." };
         }
       } else {
@@ -72,11 +66,9 @@ export async function registerResident(formData: {
       }
     }
 
-    // Generate OTP
     const otp = generateOTP();
-    const otpExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour expiry
+    const otpExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    // Create auth user with admin client
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email: formData.email,
       password: formData.password,
@@ -96,7 +88,6 @@ export async function registerResident(formData: {
     });
 
     if (authError) {
-      console.error("Auth create error:", authError);
       return { success: false, error: authError.message };
     }
 
@@ -106,36 +97,29 @@ export async function registerResident(formData: {
 
     try {
       const supabase = await createClient();
-      const { error: otpError } = await supabase.auth.signInWithOtp({
+      await supabase.auth.signInWithOtp({
         email: formData.email,
         options: {
           shouldCreateUser: false,
         },
       });
-
-      if (otpError) {
-        console.error("OTP email error (using fallback):", otpError.message);
-      }
     } catch (e) {
-      console.error("OTP email exception (using fallback):", e);
+      
     }
 
     return {
       success: true,
       data: { 
         email: formData.email,
-        ...(process.env.NODE_ENV === "development" && { devOtp: otp }),
       },
     };
   } catch (error) {
-    console.error("Registration error:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Registration failed. Please try again.",
     };
   }
 }
-
 
 export async function verifyOtpAndCreateProfile(
   email: string,
@@ -145,7 +129,6 @@ export async function verifyOtpAndCreateProfile(
     const supabase = await createClient();
     const adminClient = createAdminClient();
 
-    // First try Supabase's built-in OTP verification
     const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
       email,
       token: otpCode,
@@ -154,10 +137,7 @@ export async function verifyOtpAndCreateProfile(
 
     let user = verifyData?.user;
 
-    // If Supabase verification fails, try our custom OTP stored in metadata
     if (verifyError || !user) {
-
-      // Get user by email
       const { data: authUsers } = await adminClient.auth.admin.listUsers();
       const authUser = authUsers?.users?.find((u) => u.email === email);
 
@@ -169,17 +149,14 @@ export async function verifyOtpAndCreateProfile(
       const storedOtp = metadata.otp_code;
       const otpExpiry = metadata.otp_expiry;
 
-      // Check if OTP matches
       if (!storedOtp || storedOtp !== otpCode) {
         return { success: false, error: "Invalid verification code." };
       }
 
-      // Check if OTP is expired
       if (otpExpiry && new Date(otpExpiry) < new Date()) {
         return { success: false, error: "Verification code has expired. Please request a new one." };
       }
 
-      // OTP is valid - confirm the user's email
       const { data: updatedUser, error: confirmError } = await adminClient.auth.admin.updateUserById(
         authUser.id,
         {
@@ -194,7 +171,6 @@ export async function verifyOtpAndCreateProfile(
       );
 
       if (confirmError) {
-        console.error("Email confirm error:", confirmError);
         return { success: false, error: "Failed to verify email." };
       }
 
@@ -207,7 +183,6 @@ export async function verifyOtpAndCreateProfile(
 
     const metadata = user.user_metadata || {};
 
-    // Check if profile already exists
     const { data: existingUserRecord } = await adminClient
       .from("users")
       .select("id")
@@ -219,7 +194,6 @@ export async function verifyOtpAndCreateProfile(
       return { success: true, data: { userId: existingUserRecord.id } };
     }
 
-    // Create user record
     const { data: newUser, error: userError } = await adminClient
       .from("users")
       .insert({
@@ -231,11 +205,9 @@ export async function verifyOtpAndCreateProfile(
       .single();
 
     if (userError) {
-      console.error("User insert error:", userError);
       return { success: false, error: "Failed to create user profile." };
     }
 
-    // Create resident record
     const { error: residentError } = await adminClient.from("residents").insert({
       user_id: newUser.id,
       name: metadata.full_name || `${metadata.first_name || ""} ${metadata.last_name || ""}`.trim() || "Unknown",
@@ -249,7 +221,6 @@ export async function verifyOtpAndCreateProfile(
     });
 
     if (residentError) {
-      console.error("Resident insert error:", residentError);
       await adminClient.from("users").delete().eq("id", newUser.id);
       return { success: false, error: "Failed to create resident profile." };
     }
@@ -258,14 +229,12 @@ export async function verifyOtpAndCreateProfile(
 
     return { success: true, data: { userId: newUser.id } };
   } catch (error) {
-    console.error("Verification error:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Verification failed.",
     };
   }
 }
-
 
 export async function resendOtp(email: string): Promise<AuthResult> {
   if (!email) {
@@ -289,7 +258,6 @@ export async function resendOtp(email: string): Promise<AuthResult> {
     const otp = generateOTP();
     const otpExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-
     await adminClient.auth.admin.updateUserById(authUser.id, {
       user_metadata: {
         ...authUser.user_metadata,
@@ -305,24 +273,19 @@ export async function resendOtp(email: string): Promise<AuthResult> {
         options: { shouldCreateUser: false },
       });
     } catch (e) {
-      console.error("Resend email error:", e);
     }
 
     return { 
       success: true,
-      data: {
-        ...(process.env.NODE_ENV === "development" && { devOtp: otp }),
-      },
+      data: { email },
     };
   } catch (error) {
-    console.error("Resend error:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to resend code.",
     };
   }
 }
-
 
 export async function checkVerificationStatus(email: string): Promise<AuthResult> {
   try {
@@ -331,7 +294,6 @@ export async function checkVerificationStatus(email: string): Promise<AuthResult
     const { data: authUsers, error: listError } = await adminClient.auth.admin.listUsers();
 
     if (listError) {
-      console.error("List users error:", listError);
       return { success: false, error: "Failed to check status." };
     }
 
@@ -363,14 +325,12 @@ export async function checkVerificationStatus(email: string): Promise<AuthResult
       data: { status: "pending_verification" },
     };
   } catch (error) {
-    console.error("Status check error:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to check status.",
     };
   }
 }
-
 
 export async function uploadValidId(formData: FormData): Promise<AuthResult> {
   try {
@@ -397,13 +357,11 @@ export async function uploadValidId(formData: FormData): Promise<AuthResult> {
       });
 
     if (uploadError) {
-      console.error("Upload error:", uploadError);
       return { success: false, error: uploadError.message };
     }
 
     return { success: true, data: { path: filePath } };
   } catch (error) {
-    console.error("Upload error:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Upload failed.",

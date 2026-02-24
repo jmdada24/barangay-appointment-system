@@ -305,7 +305,6 @@ export default function AppointmentsPage({ role }: AppointmentsPageProps) {
 
   async function handleArchiveConfirm() {
     if (!selectedAppointment) return;
-    console.log("Archive appointment:", selectedAppointment.id);
     setShowArchiveModal(false);
     setSelectedAppointment(null);
   }

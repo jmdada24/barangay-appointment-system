@@ -1,6 +1,8 @@
 "use server";
 
 import { createAdminClient } from "@/utils/supabase/admin";
+import { archiveItem } from "@/utils/archive-helper";
+
 
 export type AnnouncementResult = {
   success: boolean;
@@ -123,7 +125,7 @@ export async function updateAnnouncement(
 }
 
 /**
- * Delete announcement (admin only)
+ * Delete announcement (admin only) - TWO STAGE WITH ARCHIVE
  */
 export async function deleteAnnouncement(
   announcementId: number
@@ -131,14 +133,47 @@ export async function deleteAnnouncement(
   try {
     const supabase = createAdminClient();
 
-    const { error } = await supabase
+    const {
+      data: { user: currentUser },
+    } = await supabase.auth.getUser();
+
+    if (!currentUser) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    // 1. Get announcement
+    const { data: announcement, error: fetchError } = await supabase
+      .from("announcements")
+      .select("*")
+      .eq("id", announcementId)
+      .single();
+
+    if (fetchError || !announcement) {
+      return {
+        success: false,
+        error: fetchError?.message || "Announcement not found",
+      };
+    }
+
+    // 2. Archive it
+    await archiveItem({
+      type: "announcement",
+      itemId: announcementId,
+      title: announcement.title,
+      description: announcement.content?.substring(0, 100) || "",
+      originalData: announcement as Record<string, unknown>,
+      archivedBy: currentUser.id,
+    });
+
+    // 3. Delete from announcements table
+    const { error: deleteError } = await supabase
       .from("announcements")
       .delete()
       .eq("id", announcementId);
 
-    if (error) {
-      console.error("Delete announcement error:", error);
-      return { success: false, error: error.message };
+    if (deleteError) {
+      console.error("Delete announcement error:", deleteError);
+      return { success: false, error: deleteError.message };
     }
 
     return { success: true, data: { message: "Announcement deleted" } };
@@ -153,34 +188,11 @@ export async function deleteAnnouncement(
 }
 
 /**
- * Archive announcement (staff only - soft delete)
+ * Archive announcement (DEPRECATED - use deleteAnnouncement)
  */
 export async function archiveAnnouncement(
   announcementId: number
 ): Promise<AnnouncementResult> {
-  try {
-    const supabase = createAdminClient();
-
-    // For staff: we'll just delete it since there's no is_active column
-    // If you want to keep archived announcements, add an is_active column to your table
-    const { error } = await supabase
-      .from("announcements")
-      .delete()
-      .eq("id", announcementId);
-
-    if (error) {
-      console.error("Archive announcement error:", error);
-      return { success: false, error: error.message };
-    }
-
-    return { success: true, data: { message: "Announcement archived" } };
-  } catch (error) {
-    console.error("Unexpected error in archiveAnnouncement:", error);
-    return {
-      success: false,
-      error:
-        error instanceof Error ? error.message : "An unexpected error occurred",
-    };
-  }
+  // Now just calls delete which archives first
+  return deleteAnnouncement(announcementId);
 }
-

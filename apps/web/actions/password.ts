@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/utils/supabase/admin";
+import { createClient } from "@/utils/supabase/server";
 
 export type AuthResult = {
   success: boolean;
@@ -15,9 +16,21 @@ export async function changePassword(
   newPassword: string
 ): Promise<AuthResult> {
   try {
-    const supabase = createAdminClient();
+    const supabase = await createClient();
 
-    const { data, error } = await supabase.auth.updateUser({
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return {
+        success: false,
+        error: "Not authenticated",
+      };
+    }
+
+    const { error } = await supabase.auth.updateUser({
       password: newPassword,
     });
 
@@ -29,9 +42,23 @@ export async function changePassword(
       };
     }
 
+    // If this is a resident account, mark temp-password flow as completed.
+    const { data: userRecord } = await supabase
+      .from("users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .single();
+
+    if (userRecord?.id) {
+      await supabase
+        .from("residents")
+        .update({ must_change_password: false })
+        .eq("user_id", userRecord.id);
+    }
+
     return {
       success: true,
-      data: { user: data.user },
+      data: { message: "Password changed successfully" },
     };
   } catch (error) {
     console.error("Unexpected error in changePassword:", error);
@@ -52,12 +79,19 @@ export async function forceChangePassword(
   newPassword: string
 ): Promise<AuthResult> {
   try {
+    if (!residentId || residentId <= 0) {
+      return {
+        success: false,
+        error: "Invalid resident account. Please sign in again.",
+      };
+    }
+
     const supabase = createAdminClient();
 
-    // 1. Get resident and their associated user
+    // 1. Get resident first to get user_id
     const { data: resident, error: residentError } = await supabase
       .from("residents")
-      .select("users:user_id(id, auth_id, email)")
+      .select("user_id")
       .eq("id", residentId)
       .single();
 
@@ -69,23 +103,32 @@ export async function forceChangePassword(
       };
     }
 
-    const residentUser = resident.users as unknown as {
-      id: number;
-      auth_id: string;
-      email: string;
-    };
+    // 2. Get the user record to get auth_id
+    const { data: userRecord, error: userError } = await supabase
+      .from("users")
+      .select("auth_id, email")
+      .eq("id", resident.user_id)
+      .single();
 
-    if (!residentUser?.auth_id) {
-      console.error("Resident user auth_id not found");
+    if (userError || !userRecord) {
+      console.error("User fetch error:", userError);
       return {
         success: false,
-        error: "Resident user not properly configured",
+        error: "User not found",
       };
     }
 
-    // 2. Update the auth user's password
+    if (!userRecord.auth_id) {
+      console.error("Auth ID not found");
+      return {
+        success: false,
+        error: "User auth ID not configured",
+      };
+    }
+
+    // 3. Update the auth user's password
     const { error: updateError } = await supabase.auth.admin.updateUserById(
-      residentUser.auth_id,
+      userRecord.auth_id,
       {
         password: newPassword,
       }
@@ -99,7 +142,7 @@ export async function forceChangePassword(
       };
     }
 
-    // 3. Set must_change_password to false
+    // 4. Set must_change_password to false
     const { error: updateResidentError } = await supabase
       .from("residents")
       .update({ must_change_password: false })
@@ -117,7 +160,6 @@ export async function forceChangePassword(
       success: true,
       data: {
         message: "Password changed successfully",
-        email: residentUser.email,
       },
     };
   } catch (error) {

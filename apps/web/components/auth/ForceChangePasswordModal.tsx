@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { KeyRound, Loader2, Eye, EyeOff, ShieldAlert } from "lucide-react";
+import { KeyRound, Loader2, Eye, EyeOff, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,8 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-import { forceChangePassword } from "@/actions/password";
 
 const schema = z
   .object({
@@ -52,12 +50,12 @@ export default function ForceChangePasswordModal({
   onSuccess,
   allowSkip = true,
 }: ForceChangePasswordModalProps) {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
   const {
     register,
@@ -77,43 +75,98 @@ export default function ForceChangePasswordModal({
     setLoading(true);
 
     try {
-      const result = await forceChangePassword(residentId, values.newPassword);
-
-      if (!result.success) {
-        setError(result.error || "Failed to change password");
+      if (!residentId || residentId <= 0) {
+        setError("Resident account not found. Please sign in again.");
         setLoading(false);
         return;
       }
 
-      reset();
-      onOpenChange(false);
+      const response = await fetch("/api/auth/force-change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          newPassword: values.newPassword,
+        }),
+      });
+
+      const result = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!result.success) {
+        setError(result.error || "Failed to change password");
+        toast.error(result.error || "Failed to change password");
+        setLoading(false);
+        return;
+      }
+
+      // Show success state
+      setShowSuccessMessage(true);
+      toast.success("Password changed successfully!");
       
-      // Small delay to ensure modal closes before redirect
+      reset();
+      
+      // Wait for success message animation, then close and redirect
       setTimeout(() => {
-        onSuccess();
-      }, 300);
+        onOpenChange(false);
+        setTimeout(() => {
+          onSuccess();
+        }, 300);
+      }, 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      const errorMsg = e instanceof Error ? e.message : "Something went wrong";
+      setError(errorMsg);
+      toast.error(errorMsg);
       setLoading(false);
     }
   });
 
   const handleSkip = () => {
     setSkipping(true);
-    onOpenChange(false);
-    
-    // Redirect after modal closes
-    setTimeout(() => {
-      router.push("/resident");
-    }, 300);
+    onSuccess();
   };
 
+  // Show success screen
+  if (showSuccessMessage) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md text-center">
+          <div className="flex flex-col items-center justify-center py-8">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4 animate-in fade-in scale-in duration-300">
+              <CheckCircle2 className="w-10 h-10 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-foreground mb-2">
+              Password Changed Successfully!
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              Your password has been updated. You'll be redirected shortly to continue.
+            </p>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Redirecting...</span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog 
+      open={open} 
+      onOpenChange={onOpenChange}
+    >
       <DialogContent
         className="sm:max-w-md"
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => {
+          if (!skipping) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (!skipping) e.preventDefault();
+        }}
       >
         <DialogHeader className="text-center sm:text-center">
           <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
@@ -153,6 +206,7 @@ export default function ForceChangePasswordModal({
                 onClick={() => setShowNewPassword(!showNewPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 disabled={loading || skipping}
+                aria-label="Toggle password visibility"
               >
                 {showNewPassword ? (
                   <EyeOff className="h-4 w-4" />
@@ -184,6 +238,7 @@ export default function ForceChangePasswordModal({
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 disabled={loading || skipping}
+                aria-label="Toggle password visibility"
               >
                 {showConfirmPassword ? (
                   <EyeOff className="h-4 w-4" />

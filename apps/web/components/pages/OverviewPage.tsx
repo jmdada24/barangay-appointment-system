@@ -89,7 +89,6 @@ export default function OverviewPage({ role }: OverviewPageProps) {
       }
     } catch (err) {
       setError("Failed to load overview data");
-      console.error(err);
     }
 
     setLoading(false);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Calendar, Filter, MessageSquare, Star, Trash2, User, Archive, Loader2, AlertCircle } from "lucide-react";
+import { Calendar, Filter, MessageSquare, Star, Trash2, User, Archive, Loader2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getFeedback, deleteFeedback, archiveFeedback } from "@/actions/feedback";
@@ -16,15 +16,20 @@ type FeedbackCategory =
   | "Appointment Process"
   | "Suggestions"
   | "Complaints"
-  | "Others";
+  | "Feedback";
 
 type FeedbackData = {
   id: number;
   resident_id: number;
   rating: number;
+  individual_ratings?: Record<number, number>; // ✅ NEW: From database
   category: FeedbackCategory;
   comments: string;
+  appointment_id?: number | null;
   submitted_at: string;
+  is_archived: boolean;
+  archived_at?: string;
+  archived_by?: string;
   residents: {
     id: number;
     name: string;
@@ -32,6 +37,13 @@ type FeedbackData = {
       email: string;
     };
   };
+  appointments?: {
+    id: number;
+    status: string;
+    schedules: {
+      date: string;
+    };
+  } | null;
 };
 
 interface FeedbackPageProps {
@@ -46,15 +58,23 @@ const categories: FeedbackCategory[] = [
   "Appointment Process",
   "Suggestions",
   "Complaints",
-  "Others",
+  "Feedback",
+];
+
+const satisfactionQuestions = [
+  "How satisfied are you with the quality of service provided?",
+  "How professional and courteous was the staff?",
+  "Was the appointment process smooth and efficient?",
+  "How satisfied are you with the facilities and cleanliness?",
+  "Would you recommend our barangay services to others?",
 ];
 
 const ratingLabels: Record<number, string> = {
-  1: "Poor",
-  2: "Fair",
-  3: "Average",
-  4: "Good",
-  5: "Excellent",
+  1: "Very dissatisfied",
+  2: "Dissatisfied",
+  3: "Neutral",
+  4: "Satisfied",
+  5: "Very Satisfied",
 };
 
 function formatDate(dateStr: string) {
@@ -71,6 +91,24 @@ function formatDate(dateStr: string) {
   }
 }
 
+function RatingStars({ rating, size = "sm" }: { rating: number; size?: "sm" | "md" }) {
+  const starSize = size === "sm" ? "w-3.5 h-3.5" : "w-4 h-4";
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={`${starSize} ${
+            star <= rating
+              ? "fill-yellow-400 text-yellow-400"
+              : "fill-transparent text-gray-300"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function FeedbackPage({ role }: FeedbackPageProps) {
   const [feedbacks, setFeedbacks] = useState<FeedbackData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +120,7 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackData | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [expandedFeedbackId, setExpandedFeedbackId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchFeedback();
@@ -116,16 +155,16 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
   }, [feedbacks]);
 
   const filteredFeedbacks = useMemo(() => {
-  let result = [...feedbacks];
-  if (categoryFilter !== "all") result = result.filter((f) => f.category === categoryFilter);
-  if (ratingFilter !== "all") result = result.filter((f) => f.rating === parseInt(ratingFilter));
-  result.sort((a, b) => {
-    const dateA = new Date(a.submitted_at).getTime();
-    const dateB = new Date(b.submitted_at).getTime();
-    return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
-  });
-  return result;
-}, [feedbacks, categoryFilter, ratingFilter, sortOrder]);
+    let result = [...feedbacks];
+    if (categoryFilter !== "all") result = result.filter((f) => f.category === categoryFilter);
+    if (ratingFilter !== "all") result = result.filter((f) => f.rating === parseInt(ratingFilter));
+    result.sort((a, b) => {
+      const dateA = new Date(a.submitted_at).getTime();
+      const dateB = new Date(b.submitted_at).getTime();
+      return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
+    });
+    return result;
+  }, [feedbacks, categoryFilter, ratingFilter, sortOrder]);
 
   function handleRemoveClick(feedback: FeedbackData) {
     setSelectedFeedback(feedback);
@@ -274,56 +313,114 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
 
           <div className="space-y-3">
             {filteredFeedbacks.map((feedback) => (
-              <div key={feedback.id} className="p-4 bg-white border border-gray-100 rounded-lg">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <User className="w-5 h-5 text-gray-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-gray-900">{feedback.residents.name}</h3>
-                      <p className="text-xs text-gray-500">{feedback.residents.users.email}</p>
-                      <div className="flex items-center gap-1.5 my-2">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star
-                            key={star}
-                            className={`w-3.5 h-3.5 ${
-                              star <= feedback.rating
-                                ? "fill-yellow-400 text-yellow-400"
-                                : "fill-transparent text-gray-300"
-                            }`}
-                          />
-                        ))}
-                        <span className="text-xs text-gray-500 ml-1">
-                          {ratingLabels[feedback.rating]}
-                        </span>
+              <div key={feedback.id} className="bg-white border border-gray-100 rounded-lg overflow-hidden">
+                {/* Main Feedback Card */}
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User className="w-5 h-5 text-gray-400" />
                       </div>
-                      <p className="text-sm text-gray-600 mb-2">{feedback.comments}</p>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
-                          {feedback.category}
-                        </span>
+                      <div className="flex-1 min-w-0">
+                        {/* Resident Name & Email */}
+                        <h3 className="font-medium text-gray-900">{feedback.residents.name}</h3>
+                        <p className="text-xs text-gray-500">{feedback.residents.users.email}</p>
+
+                        {/* Overall Star Rating */}
+                        <div className="flex items-center gap-2 my-2">
+                          <RatingStars rating={feedback.rating} size="sm" />
+                          <span className="text-xs font-medium text-gray-700">
+                            {feedback.rating}/5 - {ratingLabels[feedback.rating]}
+                          </span>
+                        </div>
+
+                        {/* Comments */}
+                        <p className="text-sm text-gray-600 mb-2">{feedback.comments}</p>
+
+                        {/* Category & Appointment Info */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                            {feedback.category}
+                          </span>
+
+                          {feedback.appointments && (
+                            <span className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">
+                              Appointment #{feedback.appointment_id} • {feedback.appointments.status}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <span className="text-xs text-gray-500">{formatDate(feedback.submitted_at)}</span>
-                    <button
-                      onClick={() => handleRemoveClick(feedback)}
-                      className={`p-1.5 rounded-lg transition-colors ${
-                        role === "staff"
-                          ? "text-yellow-400 hover:text-yellow-600 hover:bg-yellow-50"
-                          : "text-red-400 hover:text-red-600 hover:bg-red-50"
-                      }`}
-                    >
-                      {role === "staff" ? (
-                        <Archive className="w-4 h-4" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </button>
+
+                    {/* Date & Action Button */}
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      <span className="text-xs text-gray-500">
+                        {formatDate(feedback.submitted_at)}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() =>
+                            setExpandedFeedbackId(
+                              expandedFeedbackId === feedback.id ? null : feedback.id
+                            )
+                          }
+                          className="p-1.5 rounded-lg transition-colors text-blue-400 hover:text-blue-600 hover:bg-blue-50"
+                          title="View details"
+                        >
+                          {expandedFeedbackId === feedback.id ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleRemoveClick(feedback)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            role === "staff"
+                              ? "text-yellow-400 hover:text-yellow-600 hover:bg-yellow-50"
+                              : "text-red-400 hover:text-red-600 hover:bg-red-50"
+                          }`}
+                          title={
+                            role === "staff" ? "Archive feedback" : "Delete feedback"
+                          }
+                        >
+                          {role === "staff" ? (
+                            <Archive className="w-4 h-4" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* ✅ NEW: Expanded Details Section */}
+                {expandedFeedbackId === feedback.id && (
+                  <div className="border-t border-gray-100 bg-gray-50 p-4">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm text-gray-900">Individual Ratings</h4>
+                      {satisfactionQuestions.map((question, index) => {
+                        const rating = feedback.individual_ratings?.[index] || feedback.rating;
+                          return (
+                            <div key={index} className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-gray-700">
+                                  {index + 1}. {question}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <RatingStars rating={rating} size="sm" />
+                                <span className="text-xs font-medium text-gray-600 min-w-fit">
+                                  {rating}/5
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
 
@@ -346,7 +443,9 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
               <Archive className="w-7 h-7 text-yellow-600" />
             </div>
             <h3 className="text-lg font-semibold mb-2">Archive Feedback?</h3>
-            <p className="text-sm text-gray-500 mb-5">This feedback will be moved to archive.</p>
+            <p className="text-sm text-gray-500 mb-5">
+              This feedback will be moved to archive and hidden from the list.
+            </p>
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -380,7 +479,9 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
               <Trash2 className="w-7 h-7 text-red-600" />
             </div>
             <h3 className="text-lg font-semibold mb-2">Delete Feedback?</h3>
-            <p className="text-sm text-gray-500 mb-5">This action cannot be undone.</p>
+            <p className="text-sm text-gray-500 mb-5">
+              This feedback will be permanently deleted and archived. This action cannot be undone.
+            </p>
             <div className="flex gap-3">
               <Button
                 variant="outline"

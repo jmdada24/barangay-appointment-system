@@ -27,7 +27,6 @@ import {
 import {
   getResidents,
   deleteResident,
-  archiveResident,
 } from "@/actions/residents";
 import type { ResidentWithUser, VerificationStatus } from "@/types/resident";
 
@@ -136,16 +135,20 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
 
   async function handleArchiveConfirm() {
     if (!selectedResident) return;
-    await archiveResident(selectedResident.id);
+    // Staff archives (calls deleteResident which archives first)
+    await deleteResident(selectedResident.id);
     await fetchResidents();
     setSelectedResident(null);
+    setShowArchiveModal(false);
   }
 
   async function handleDeleteConfirm() {
     if (!selectedResident) return;
+    // Admin deletes (calls deleteResident which archives first)
     await deleteResident(selectedResident.id);
     await fetchResidents();
     setSelectedResident(null);
+    setShowDeleteModal(false);
   }
 
   return (

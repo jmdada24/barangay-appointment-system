@@ -20,7 +20,6 @@ import {
   FileText,
   User,
   LogOut,
-  Settings,
   ChevronUp,
 } from "lucide-react";
 
@@ -61,6 +60,15 @@ function isActive(pathname: string, href: string) {
   if (target === "/staff") return current === "/staff";
   if (target === "/resident") return current === "/resident";
 
+  // ✅ NEW: Highlight "My Appointments" when on feedback page
+  if (target === "/resident/my-appointment") {
+    return (
+      current === target ||
+      current.startsWith(target + "/") ||
+      current === "/resident/feedback"
+    );
+  }
+
   return current === target || current.startsWith(target + "/");
 }
 
@@ -82,7 +90,9 @@ export default function AppSidebar({
     email: "...",
     role: role,
   });
-  const [profileDetails, setProfileDetails] = useState<Record<string, string | null>>({});
+  const [profileDetails, setProfileDetails] = useState<
+    Record<string, string | null>
+  >({});
   const [loadingProfile, setLoadingProfile] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +105,9 @@ export default function AppSidebar({
   useEffect(() => {
     async function fetchUserProfile() {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) return;
 
@@ -159,6 +171,27 @@ export default function AppSidebar({
     };
   }, [profileOpen]);
 
+  // ✅ Mobile UX: lock background scroll while sidebar is open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
+
+  // ✅ Mobile UX: ESC closes sidebar
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    if (isOpen) window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
+
   const items = useMemo<SidebarItem[]>(() => {
     if (role === "resident") {
       return [
@@ -166,7 +199,6 @@ export default function AppSidebar({
         { label: "Book Appointment", href: "/resident/book-appointment", icon: Plus },
         { label: "My Appointments", href: "/resident/my-appointment", icon: FileText },
         { label: "Announcements", href: "/resident/announcement", icon: Megaphone },
-        { label: "Feedback", href: "/resident/feedback", icon: MessageSquareText },
       ];
     }
 
@@ -210,7 +242,9 @@ export default function AppSidebar({
     setLoadingProfile(true);
 
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
       setLoadingProfile(false);
@@ -289,28 +323,34 @@ export default function AppSidebar({
 
   return (
     <>
-      {/* Mobile Overlay - Smooth fade in/out */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 lg:hidden animate-in fade-in duration-300"
-          onClick={onClose}
-        />
-      )}
+      {/* ✅ Mobile Overlay - Smooth fade in/out */}
+      <div
+        className={[
+          "fixed inset-0 bg-black/50 z-30 lg:hidden",
+          "transition-opacity duration-300",
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
+        ].join(" ")}
+        onClick={onClose}
+        aria-hidden={!isOpen}
+      />
 
       <aside
         className={[
+          // base
           "w-[256px] shrink-0 flex-col bg-primary text-white",
-          "fixed left-0 top-0 h-dvh z-40",
+          "fixed left-0 top-0 h-dvh z-50",
+          "transform transition-transform duration-300 ease-out will-change-transform",
+          isOpen ? "translate-x-0" : "-translate-x-full",
           "lg:sticky lg:translate-x-0",
-          "transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0 flex" : "-translate-x-full hidden lg:flex",
+          "flex",
+          "overflow-y-auto overscroll-contain",
           className,
         ].join(" ")}
+        role="navigation"
+        aria-label="Sidebar"
       >
-
-        
         {/* Close Button for Mobile */}
-        <div className="flex lg:hidden items-center justify-end p-4">
+        <div className="flex lg:hidden items-center justify-end p-4 flex-shrink-0">
           <button
             onClick={onClose}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
@@ -350,7 +390,10 @@ export default function AppSidebar({
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={onClose}
+                onClick={() => {
+                  // close drawer on mobile after navigation
+                  onClose();
+                }}
                 aria-current={active ? "page" : undefined}
                 className={[
                   "rounded-md font-medium p-3 text-base transition-all duration-200",
@@ -368,7 +411,10 @@ export default function AppSidebar({
         </nav>
 
         {/* Profile Section with Floating Dropdown */}
-        <div className="relative px-4 py-4 border-t border-white/10 flex-shrink-0" ref={dropdownRef}>
+        <div
+          className="relative px-4 py-4 border-t border-white/10 flex-shrink-0"
+          ref={dropdownRef}
+        >
           {/* Floating Dropdown - Positioned ABOVE the button */}
           {profileOpen && (
             <div className="absolute bottom-full left-4 right-4 mb-2 rounded-lg border border-white/20 bg-[#1a3d2e] shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -393,13 +439,6 @@ export default function AppSidebar({
                 >
                   <User className="h-4 w-4" />
                   View Profile
-                </button>
-
-                <button
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-md hover:bg-white/10 transition-colors text-white/90"
-                >
-                  <Settings className="h-4 w-4" />
-                  Settings
                 </button>
               </div>
 
@@ -433,7 +472,9 @@ export default function AppSidebar({
               </div>
             </div>
             <ChevronUp
-              className={`h-4 w-4 text-white/60 transition-transform duration-200 ${profileOpen ? "rotate-180" : ""}`}
+              className={`h-4 w-4 text-white/60 transition-transform duration-200 ${
+                profileOpen ? "rotate-180" : ""
+              }`}
             />
           </button>
         </div>
@@ -466,17 +507,17 @@ export default function AppSidebar({
                 <User className="h-10 w-10 text-primary" />
               </div>
               <h3 className="text-lg font-medium text-gray-900">{userProfile.name}</h3>
-              <span
-                className={`mt-1 px-3 py-1 rounded-full text-sm font-medium capitalize ${
-                  userProfile.role === "admin"
-                    ? "bg-red-100 text-red-700"
-                    : userProfile.role === "staff"
-                      ? "bg-blue-100 text-blue-700"
-                      : "bg-green-100 text-green-700"
-                }`}
-              >
-                {userProfile.role}
-              </span>
+              {(userProfile.role === "admin" || userProfile.role === "staff") && (
+                <span
+                  className={`mt-1 px-3 py-1 rounded-full text-sm font-medium capitalize ${
+                    userProfile.role === "admin"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-blue-100 text-blue-700"
+                  }`}
+                >
+                  {userProfile.role}
+                </span>
+              )}
             </div>
 
             {/* Profile Details */}
@@ -490,13 +531,20 @@ export default function AppSidebar({
               <div className="space-y-3">
                 {Object.entries(profileDetails).map(
                   ([key, value]) =>
-                    value && (
+                    value &&
+                    !(userProfile.role === "resident" && key === "Role") && (
                       <div
                         key={key}
                         className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0"
                       >
                         <span className="text-sm text-gray-500">{key}</span>
-                        <span className="text-sm font-medium text-gray-900 capitalize">{value}</span>
+                        <span
+                          className={`text-sm font-medium text-gray-900 ${
+                            key === "Email" ? "" : "capitalize"
+                          }`}
+                        >
+                          {value}
+                        </span>
                       </div>
                     )
                 )}

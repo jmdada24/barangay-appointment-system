@@ -17,7 +17,6 @@ const mainheader: MainHeaderItem[] = [
   { lblTitle: "My Appointments", lblSubtitle: "View and manage your appointment requests", href: "/resident/my-appointment" },
   { lblTitle: "Schedules", lblSubtitle: "Manage available schedules", href: "/resident/schedule" },
   { lblTitle: "Announcements", lblSubtitle: "Manage public announcements and notices", href: "/resident/announcement" },
-  { lblTitle: "Feedback", lblSubtitle: "View and manage resident feedback", href: "/resident/feedback" },
 ];
 
 export default function ResidentLayout({ children }: { children: ReactNode }) {
@@ -25,8 +24,8 @@ export default function ResidentLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="h-dvh overflow-hidden bg-background">
-      
       <div className="flex h-full">
+        
         {/* Sidebar */}
         <AppSidebar 
           role="resident" 
@@ -38,7 +37,7 @@ export default function ResidentLayout({ children }: { children: ReactNode }) {
           {/* Header with menu button */}
           <ResidentHeader 
             items={mainheader}
-            onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+            onMenuClick={() => setSidebarOpen(true)}
           />
             
           <div className="p-6">{children}</div>
