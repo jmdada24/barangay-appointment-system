@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { SessionManager } from "@/lib/session.manager";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -48,12 +47,6 @@ export async function GET(request: NextRequest) {
 
     const userRole = userData.role as "admin" | "staff" | "resident";
 
-    const { token } = await SessionManager.createSession(
-      data.user.id,
-      userRole,
-      request
-    );
-
     const redirectPath =
       userRole === "admin"
         ? "/admin"
@@ -61,17 +54,7 @@ export async function GET(request: NextRequest) {
           ? "/staff"
           : "/resident";
 
-    const response = NextResponse.redirect(new URL(`${origin}${redirectPath}`, request.url));
-
-    response.cookies.set("session_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60,
-      path: "/",
-    });
-
-    return response;
+    return NextResponse.redirect(new URL(`${origin}${redirectPath}`, request.url));
   } catch {
     console.error("Auth callback error");
     return NextResponse.redirect(
@@ -117,26 +100,11 @@ export async function POST(request: NextRequest) {
     }
 
     const userRole = userData.role as "admin" | "staff" | "resident";
-    const { token } = await SessionManager.createSession(
-      data.user.id,
-      userRole,
-      request
-    );
 
-    const response = NextResponse.json({
+    return NextResponse.json({
       success: true,
       role: userRole,
     });
-
-    response.cookies.set("session_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60,
-      path: "/",
-    });
-
-    return response;
   } catch (error) {
     console.error("Auth callback POST error");
     return NextResponse.json(
