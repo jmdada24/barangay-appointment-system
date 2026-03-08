@@ -1,51 +1,50 @@
-"use client";
+import { redirect } from "next/navigation";
+import { createClient } from "@/utils/supabase/server";
+import ResidentLayoutClient from "./ResidentLayoutClient";
 
-import { useState } from "react";
-import type { ReactNode } from "react";
-import AppSidebar from "@/components/layout/AppSidebar";
-import ResidentHeader from "@/components/layout/MainHeader";
-import IdleLogout from "@/components/auth/IdleLogout";
+export default async function ResidentLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const supabase = await createClient();
 
-type MainHeaderItem = {
-  lblTitle: string;
-  lblSubtitle: string;
-  href: string;
-};
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-const mainheader: MainHeaderItem[] = [
-  { lblTitle: "Resident Dashboard", lblSubtitle: "Welcome to the Barangay Bayabas Online Service Portal", href: "/resident" },
-  { lblTitle: "Book an Appointment", lblSubtitle: "Schedule your barangay service request", href: "/resident/book-appointment" },
-  { lblTitle: "My Appointments", lblSubtitle: "View and manage your appointment requests", href: "/resident/my-appointment" },
-  { lblTitle: "Schedules", lblSubtitle: "Manage available schedules", href: "/resident/schedule" },
-  { lblTitle: "Announcements", lblSubtitle: "Manage public announcements and notices", href: "/resident/announcement" },
-];
+  if (!user) {
+    redirect("/");
+  }
 
-export default function ResidentLayout({ children }: { children: ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { data: resident } = await supabase
+    .from("residents")
+    .select(
+      `
+      id,
+      name,
+      must_change_password,
+      verification_status,
+      users!inner (
+        auth_id
+      )
+    `
+    )
+    .eq("users.auth_id", user.id)
+    .single();
+
+  if (!resident) {
+    redirect("/");
+  }
 
   return (
-    <div className="h-dvh overflow-hidden bg-background">
-      <IdleLogout idleMs={30 * 60 * 1000} />
-
-      <div className="flex h-full">
-        
-        {/* Sidebar */}
-        <AppSidebar 
-          role="resident" 
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
-
-        <main className="flex-1 min-w-0 h-dvh overflow-y-auto">
-          {/* Header with menu button */}
-          <ResidentHeader 
-            items={mainheader}
-            onMenuClick={() => setSidebarOpen(true)}
-          />
-            
-          <div className="p-6">{children}</div>
-        </main>
-      </div>
-    </div>
+    <ResidentLayoutClient
+      residentId={resident.id}
+      residentName={resident.name}
+      mustChangePassword={resident.must_change_password}
+      verificationStatus={resident.verification_status}
+    >
+      {children}
+    </ResidentLayoutClient>
   );
 }
