@@ -82,7 +82,7 @@ export async function uploadFacePhoto(
       },
     };
   } catch (error) {
-    console.error("Face photo upload error:", error);
+
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unexpected error occurred during upload.",

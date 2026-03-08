@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bell, Plus, Trash2, Archive, X, Loader2, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
+import {
+  Bell,
+  Plus,
+  Archive,
+  X,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -76,14 +84,17 @@ function formatDate(dateISO: string) {
   }
 }
 
-export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
+export default function AnnouncementsPage({
+  role,
+}: AnnouncementsPageProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
-  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [selectedAnnouncement, setSelectedAnnouncement] =
+    useState<Announcement | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -131,11 +142,12 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
 
     if (result.success) {
       await fetchAnnouncements();
+      toast.success("Announcement created successfully.");
       setShowCreateModal(false);
       setFormData({ title: "", content: "", type: "info" });
       setErrors({});
     } else {
-      alert(result.error || "Failed to create announcement");
+      toast.error(result.error || "Failed to create announcement.");
     }
 
     setActionLoading(false);
@@ -160,10 +172,11 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
       setAnnouncements((prev) =>
         prev.filter((a) => a.id !== selectedAnnouncement.id)
       );
+      toast.success("Announcement archived successfully.");
       setShowArchiveModal(false);
       setSelectedAnnouncement(null);
     } else {
-      alert(result.error || "Failed to archive announcement");
+      toast.error(result.error || "Failed to archive announcement.");
     }
 
     setActionLoading(false);
@@ -179,10 +192,11 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
       setAnnouncements((prev) =>
         prev.filter((a) => a.id !== selectedAnnouncement.id)
       );
+      toast.success("Announcement archived successfully.");
       setShowDeleteModal(false);
       setSelectedAnnouncement(null);
     } else {
-      alert(result.error || "Failed to delete announcement");
+      toast.error(result.error || "Failed to archive announcement.");
     }
 
     setActionLoading(false);
@@ -201,13 +215,15 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
       <Card className="border border-red-200 shadow-sm">
         <CardContent className="p-6">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
             <div>
-              <h3 className="font-medium text-red-900">Error Loading Announcements</h3>
-              <p className="text-sm text-red-700 mt-1">{error}</p>
+              <h3 className="font-medium text-red-900">
+                Error Loading Announcements
+              </h3>
+              <p className="mt-1 text-sm text-red-700">{error}</p>
               <button
                 onClick={fetchAnnouncements}
-                className="mt-3 text-sm font-medium text-red-600 hover:text-red-700 underline"
+                className="mt-3 text-sm font-medium text-red-600 underline hover:text-red-700"
               >
                 Try Again
               </button>
@@ -226,38 +242,38 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
           className="bg-primary hover:bg-primary/90"
           size="lg"
         >
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           New Announcement
         </Button>
       </div>
 
       <Card className="border border-gray-200 shadow-sm">
-        <CardContent className="p-4 space-y-3">
+        <CardContent className="space-y-3 p-4">
           {announcements.length > 0 ? (
             announcements.map((announcement) => {
               const styles = getTypeStyles(announcement.type);
               return (
                 <div
                   key={announcement.id}
-                  className={`p-4 bg-white border border-gray-100 rounded-lg border-l-4 ${styles.card}`}
+                  className={`rounded-lg border border-gray-100 border-l-4 bg-white p-4 ${styles.card}`}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
                       <Bell
-                        className={`w-5 h-5 mt-0.5 flex-shrink-0 ${styles.icon}`}
+                        className={`mt-0.5 h-5 w-5 flex-shrink-0 ${styles.icon}`}
                       />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
                           <h3 className={`font-semibold ${styles.title}`}>
                             {announcement.title}
                           </h3>
                           <span
-                            className={`px-2 py-0.5 text-xs font-medium rounded border ${styles.badge}`}
+                            className={`rounded border px-2 py-0.5 text-xs font-medium ${styles.badge}`}
                           >
                             {capitalizeFirst(announcement.type)}
                           </span>
                         </div>
-                        <p className={`text-sm ${styles.content} mb-2`}>
+                        <p className={`mb-2 text-sm ${styles.content}`}>
                           {announcement.content}
                         </p>
                         <p className="text-xs text-gray-500">
@@ -268,26 +284,19 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
 
                     <button
                       onClick={() => handleRemoveClick(announcement)}
-                      className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
-                        role === "staff"
-                          ? "text-yellow-400 hover:text-yellow-600 hover:bg-yellow-50"
-                          : "text-gray-400 hover:text-red-500 hover:bg-red-50"
-                      }`}
+                      className="flex-shrink-0 rounded-lg p-2 text-yellow-500 transition-colors hover:bg-yellow-50 hover:text-yellow-600"
+                      title="Archive"
                     >
-                      {role === "staff" ? (
-                        <Archive className="w-5 h-5" />
-                      ) : (
-                        <Trash2 className="w-5 h-5" />
-                      )}
+                      <Archive className="h-5 w-5" />
                     </button>
                   </div>
                 </div>
               );
             })
           ) : (
-            <div className="text-center py-10">
-              <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <h3 className="text-lg font-medium text-gray-900 mb-1">
+            <div className="py-10 text-center">
+              <Bell className="mx-auto mb-3 h-12 w-12 text-gray-300" />
+              <h3 className="mb-1 text-lg font-medium text-gray-900">
                 No announcements yet
               </h3>
               <p className="text-sm text-gray-500">
@@ -300,9 +309,9 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-lg w-full p-6">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6">
+            <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">
                 New Announcement
               </h2>
@@ -314,24 +323,27 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
                 }}
                 className="p-1 text-gray-400 hover:text-gray-600"
               >
-                <X className="w-5 h-5" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Title <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.title}
                   onChange={(e) => {
-                    setFormData((prev) => ({ ...prev, title: e.target.value }));
+                    setFormData((prev) => ({
+                      ...prev,
+                      title: e.target.value,
+                    }));
                     if (errors.title)
                       setErrors((prev) => ({ ...prev, title: "" }));
                   }}
-                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                  className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 ${
                     errors.title ? "border-red-500" : "border-gray-200"
                   }`}
                   placeholder="Enter announcement title"
@@ -342,7 +354,7 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Type <span className="text-red-500">*</span>
                 </label>
                 <div className="flex gap-2">
@@ -356,10 +368,10 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
                         onClick={() =>
                           setFormData((prev) => ({ ...prev, type }))
                         }
-                        className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${
+                        className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all ${
                           isSelected
-                            ? `${styles.badge} ring-2 ring-offset-1 ring-primary/30`
-                            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                            ? `${styles.badge} ring-2 ring-primary/30 ring-offset-1`
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                         }`}
                       >
                         {capitalizeFirst(type)}
@@ -370,18 +382,21 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Content <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   value={formData.content}
                   onChange={(e) => {
-                    setFormData((prev) => ({ ...prev, content: e.target.value }));
+                    setFormData((prev) => ({
+                      ...prev,
+                      content: e.target.value,
+                    }));
                     if (errors.content)
                       setErrors((prev) => ({ ...prev, content: "" }));
                   }}
                   rows={4}
-                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none ${
+                  className={`w-full resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 ${
                     errors.content ? "border-red-500" : "border-gray-200"
                   }`}
                   placeholder="Enter announcement content"
@@ -411,7 +426,7 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
                   disabled={actionLoading}
                 >
                   {actionLoading && (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
                   Create Announcement
                 </Button>
@@ -423,16 +438,16 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
 
       {/* Archive Modal (Staff) */}
       {showArchiveModal && selectedAnnouncement && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-sm w-full p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-6">
             <div className="text-center">
-              <div className="w-14 h-14 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Archive className="w-7 h-7 text-yellow-600" />
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-yellow-100">
+                <Archive className="h-7 w-7 text-yellow-600" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">
                 Archive Announcement?
               </h3>
-              <p className="text-sm text-gray-500 mb-5">
+              <p className="mb-5 text-sm text-gray-500">
                 This announcement will be moved to the archive. An admin can
                 restore it later.
               </p>
@@ -454,7 +469,7 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
                   disabled={actionLoading}
                 >
                   {actionLoading && (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
                   Archive
                 </Button>
@@ -464,20 +479,22 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
         </div>
       )}
 
-      {/* Delete Modal (Admin) */}
+      {/* Archive Modal (Admin) */}
       {showDeleteModal && selectedAnnouncement && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-sm w-full p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-6">
             <div className="text-center">
-              <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-7 h-7 text-red-600" />
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-yellow-100">
+                <Archive className="h-7 w-7 text-yellow-600" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Delete Announcement?
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">
+                Archive Announcement?
               </h3>
-              <p className="text-sm text-gray-500 mb-5">
-                Are you sure you want to delete "{selectedAnnouncement.title}"?
-                This action cannot be undone.
+              <p className="mb-5 text-sm text-gray-500">
+                Are you sure you want to archive "
+                {selectedAnnouncement.title}"? It will be removed from the
+                active announcements list and can be restored later from the
+                archive.
               </p>
               <div className="flex gap-3">
                 <Button
@@ -492,14 +509,14 @@ export default function AnnouncementsPage({ role }: AnnouncementsPageProps) {
                   Cancel
                 </Button>
                 <Button
-                  className="flex-1 bg-red-600 hover:bg-red-700"
+                  className="flex-1 bg-yellow-600 hover:bg-yellow-700"
                   onClick={handleDeleteConfirm}
                   disabled={actionLoading}
                 >
                   {actionLoading && (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
-                  Delete
+                  Archive
                 </Button>
               </div>
             </div>

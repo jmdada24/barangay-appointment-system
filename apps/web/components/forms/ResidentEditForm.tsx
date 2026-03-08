@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";  // ADD useEffect
+import { useState, useTransition, useEffect } from "react";
+import { toast } from "sonner";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -84,7 +85,7 @@ export default function ResidentEditForm({
     register,
     control,
     handleSubmit,
-    reset,  // ADD reset
+    reset,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -97,7 +98,6 @@ export default function ResidentEditForm({
       sex: undefined as unknown as "male" | "female",
     },
   });
-
 
   useEffect(() => {
     if (resident) {
@@ -117,8 +117,8 @@ export default function ResidentEditForm({
     const preview = URL.createObjectURL(file);
     setFacePhotoPreview(preview);
   };
+
   const onSubmit = handleSubmit(async (values) => {
-    // Guard check in event handler instead of top-level
     if (!resident) return;
 
     setFormError(null);
@@ -126,7 +126,6 @@ export default function ResidentEditForm({
 
     startTransition(async () => {
       try {
-        // 1. Update basic resident info
         const { error: updateError } = await updateResident(resident.id, {
           name: `${values.firstName} ${values.lastName}`,
           address: values.address,
@@ -137,62 +136,65 @@ export default function ResidentEditForm({
 
         if (updateError) {
           setFormError(updateError);
+          toast.error(updateError);
           return;
         }
 
-        // 2. Upload new valid ID if provided
         if (validIdFile) {
           const validIdFormData = new FormData();
           validIdFormData.append("file", validIdFile);
 
           const uploadResult = await uploadValidId(validIdFormData);
           if (!uploadResult.success) {
-            setValidIdError(uploadResult.error || "Failed to upload Valid ID");
+            const message = uploadResult.error || "Failed to upload Valid ID";
+            setValidIdError(message);
+            toast.error(message);
             return;
           }
 
-          // Get the full URL from upload result
           const validIdUrl = (uploadResult.data as { url: string }).url;
 
-          // Update the database with the new valid ID URL
           const { error: idError } = await updateResident(resident.id, {
             valid_id_url: validIdUrl,
           });
 
           if (idError) {
             setFormError(idError);
+            toast.error(idError);
             return;
           }
         }
 
-        // 3. Upload new face photo if provided
         if (facePhotoFile) {
           const faceFormData = new FormData();
           faceFormData.append("file", facePhotoFile);
 
           const uploadResult = await uploadFacePhoto(faceFormData);
           if (!uploadResult.success) {
-            setFormError(uploadResult.error || "Failed to upload face photo");
+            const message = uploadResult.error || "Failed to upload face photo";
+            setFormError(message);
+            toast.error(message);
             return;
           }
 
-          // 4. Update face photo URL and reset verification to pending
           const facePhotoPath = (uploadResult.data as { path: string }).path;
           const updatePhotoResult = await updateResidentFacePhoto(
             resident.id,
             facePhotoPath,
-            true // Reset verification to pending
+            true
           );
 
           if (!updatePhotoResult.success) {
-            setFormError(
-              updatePhotoResult.error || "Failed to update face photo"
-            );
+            const message =
+              updatePhotoResult.error || "Failed to update face photo";
+            setFormError(message);
+            toast.error(message);
             return;
           }
         }
 
-        // Reset and close dialog
+        toast.success("Resident updated successfully.");
+
         setValidIdFile(null);
         setValidIdError(null);
         setFacePhotoFile(null);
@@ -200,14 +202,14 @@ export default function ResidentEditForm({
         onOpenChange(false);
         onSuccess();
       } catch (error) {
-        setFormError(
-          error instanceof Error ? error.message : "Something went wrong."
-        );
+        const message =
+          error instanceof Error ? error.message : "Something went wrong.";
+        setFormError(message);
+        toast.error(message);
       }
     });
   });
 
-  // Guard check AFTER all hooks - only affects JSX, not hook order
   if (!resident) {
     return null;
   }
@@ -232,7 +234,6 @@ export default function ResidentEditForm({
               </div>
             )}
 
-            {/* First + Last Name */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
@@ -263,7 +264,6 @@ export default function ResidentEditForm({
               </div>
             </div>
 
-            {/* Address */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
                 Address <span className="text-red-500">*</span>
@@ -278,7 +278,6 @@ export default function ResidentEditForm({
               )}
             </div>
 
-            {/* Contact + DOB */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
@@ -315,7 +314,6 @@ export default function ResidentEditForm({
               </div>
             </div>
 
-            {/* Sex */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
                 Sex <span className="text-red-500">*</span>
@@ -346,7 +344,6 @@ export default function ResidentEditForm({
               )}
             </div>
 
-            {/* VALID ID SECTION */}
             <div className="space-y-4 border-t pt-6">
               <Label className="text-sm font-medium">
                 Valid ID Document
@@ -356,30 +353,30 @@ export default function ResidentEditForm({
               </p>
 
               {resident.valid_id_url && !validIdFile && (
-                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                <div className="relative w-full overflow-hidden rounded-lg border border-border bg-muted/30 p-4">
                   <div className="flex items-start gap-4">
-                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                    <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
                       <img
                         src={resident.valid_id_url}
                         alt="Current Valid ID"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">
                         Current Valid ID
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         Click below to view full size or upload a new one
                       </p>
-                      <div className="flex gap-2 mt-3">
+                      <div className="mt-3 flex gap-2">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           onClick={() => setShowIdPreview(true)}
                         >
-                          <Eye className="w-4 h-4 mr-2" />
+                          <Eye className="mr-2 h-4 w-4" />
                           View Full Size
                         </Button>
                         <Button
@@ -408,16 +405,16 @@ export default function ResidentEditForm({
               )}
 
               {validIdFile && (
-                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                <div className="relative w-full overflow-hidden rounded-lg border border-border bg-muted/30 p-4">
                   <div className="flex items-start gap-4">
-                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                    <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
                       <img
                         src={URL.createObjectURL(validIdFile)}
                         alt="New Valid ID"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">
                         {validIdFile.name}
                       </p>
@@ -443,7 +440,6 @@ export default function ResidentEditForm({
               )}
             </div>
 
-            {/* FACE PHOTO SECTION */}
             <div className="space-y-4 border-t pt-6">
               <Label className="text-sm font-medium">
                 Resident Face Photo
@@ -453,20 +449,20 @@ export default function ResidentEditForm({
               </p>
 
               {resident.face_photo_url && !facePhotoFile && (
-                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                <div className="relative w-full overflow-hidden rounded-lg border border-border bg-muted/30 p-4">
                   <div className="flex items-start gap-4">
-                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                    <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
                       <img
                         src={resident.face_photo_url}
                         alt="Current Face Photo"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">
                         Current Photo
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         Click "Retake Photo" to capture a new one
                       </p>
                       <Button
@@ -476,7 +472,7 @@ export default function ResidentEditForm({
                         className="mt-3"
                         onClick={() => setShowCameraModal(true)}
                       >
-                        <Camera className="w-4 h-4 mr-2" />
+                        <Camera className="mr-2 h-4 w-4" />
                         Retake Photo
                       </Button>
                     </div>
@@ -491,22 +487,22 @@ export default function ResidentEditForm({
                   disabled={isPending}
                   className="w-full h-12 bg-blue-600 hover:bg-blue-700"
                 >
-                  <Camera className="w-4 h-4 mr-2" />
+                  <Camera className="mr-2 h-4 w-4" />
                   Take Face Photo
                 </Button>
               )}
 
               {facePhotoFile && (
-                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30 p-4">
+                <div className="relative w-full overflow-hidden rounded-lg border border-border bg-muted/30 p-4">
                   <div className="flex items-start gap-4">
-                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                    <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
                       <img
                         src={facePhotoPreview || ""}
                         alt="New Face Photo"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">
                         {facePhotoFile.name}
                       </p>
@@ -531,7 +527,7 @@ export default function ResidentEditForm({
               )}
             </div>
 
-            <DialogFooter className="gap-2 pt-4 border-t">
+            <DialogFooter className="gap-2 border-t pt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -546,7 +542,7 @@ export default function ResidentEditForm({
                 className="h-12 bg-primary hover:bg-primary/90"
                 disabled={isPending}
               >
-                {isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save Changes
               </Button>
             </DialogFooter>
@@ -560,7 +556,6 @@ export default function ResidentEditForm({
         onCapture={handleFacePhotoCapture}
       />
 
-      {/* Valid ID Preview Modal */}
       <Dialog open={showIdPreview} onOpenChange={setShowIdPreview}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

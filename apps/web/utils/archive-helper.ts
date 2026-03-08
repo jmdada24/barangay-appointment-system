@@ -2,7 +2,12 @@
 
 import { createAdminClient } from "@/utils/supabase/admin";
 
-type ArchivedItemType = "appointment" | "resident" | "announcement" | "feedback";
+type ArchivedItemType =
+  | "appointment"
+  | "resident"
+  | "announcement"
+  | "feedback"
+  | "schedule";
 
 interface ArchiveItemParams {
   type: ArchivedItemType;
@@ -35,7 +40,6 @@ export async function archiveItem(params: ArchiveItemParams) {
 
 /**
  * Restore an item from archive back to original table
- * ✅ FIXED: Check foreign keys exist before restoring
  */
 export async function restoreFromArchive(
   type: string,
@@ -46,33 +50,83 @@ export async function restoreFromArchive(
     const adminClient = createAdminClient();
 
     if (type === "resident") {
-      // ✅ Check if user_id exists before restoring
       const { id, created_at, users, updated_at, ...dataToRestore } = originalData;
-      const userId = dataToRestore.user_id as number;
 
-      // Check if user exists
-      const { data: userExists } = await adminClient
-        .from("users")
-        .select("id")
-        .eq("id", userId)
-        .single();
+      let resolvedUserId = dataToRestore.user_id as number | undefined;
 
-      if (!userExists) {
-        throw new Error(
-          `Cannot restore resident: User (ID: ${userId}) no longer exists. Please recreate the user account first.`
-        );
+      // users comes from archived nested select: users(auth_id, email)
+      const archivedUser = users as
+        | {
+            auth_id?: string;
+            email?: string;
+          }
+        | undefined;
+
+      // 1. Check if referenced users row still exists
+      let existingUser = null;
+
+      if (resolvedUserId) {
+        const { data } = await adminClient
+          .from("users")
+          .select("id")
+          .eq("id", resolvedUserId)
+          .maybeSingle();
+
+        existingUser = data;
       }
+
+      // 2. If missing, try to recover by auth_id
+      if (!existingUser && archivedUser?.auth_id) {
+        const { data } = await adminClient
+          .from("users")
+          .select("id")
+          .eq("auth_id", archivedUser.auth_id)
+          .maybeSingle();
+
+        existingUser = data;
+      }
+
+      // 3. If still missing, recreate users row from archive snapshot
+      if (!existingUser) {
+        if (!archivedUser?.email) {
+          throw new Error(
+            "Cannot restore resident: archived user email is missing."
+          );
+        }
+
+        const { data: recreatedUser, error: createUserError } = await adminClient
+          .from("users")
+          .insert({
+            auth_id: archivedUser.auth_id || null,
+            email: archivedUser.email,
+            role: "resident",
+          })
+          .select("id")
+          .single();
+
+        if (createUserError || !recreatedUser) {
+          throw new Error(
+            `Cannot restore resident: failed to recreate linked user record. ${createUserError?.message || ""}`.trim()
+          );
+        }
+
+        resolvedUserId = recreatedUser.id;
+      } else {
+        resolvedUserId = existingUser.id;
+      }
+
+      dataToRestore.user_id = resolvedUserId;
 
       const { error } = await supabase.from("residents").insert([dataToRestore]);
 
       if (error) throw error;
     } else if (type === "appointment") {
-      const { id, created_at, residents, services, schedules, ...dataToRestore } = originalData;
+      const { id, created_at, residents, services, schedules, ...dataToRestore } =
+        originalData;
       const residentId = dataToRestore.resident_id as number;
       const serviceId = dataToRestore.service_id as number;
       const scheduleId = dataToRestore.schedule_id as number;
 
-      // ✅ Check all foreign keys exist
       const { data: residentExists } = await adminClient
         .from("residents")
         .select("id")
@@ -93,7 +147,11 @@ export async function restoreFromArchive(
 
       if (!residentExists || !serviceExists || !scheduleExists) {
         throw new Error(
-          `Cannot restore appointment: Missing required references (resident: ${residentExists ? "✓" : "✗"}, service: ${serviceExists ? "✓" : "✗"}, schedule: ${scheduleExists ? "✓" : "✗"})`
+          `Cannot restore appointment: Missing required references (resident: ${
+            residentExists ? "✓" : "✗"
+          }, service: ${serviceExists ? "✓" : "✗"}, schedule: ${
+            scheduleExists ? "✓" : "✗"
+          })`
         );
       }
 
@@ -101,7 +159,8 @@ export async function restoreFromArchive(
 
       if (error) throw error;
     } else if (type === "announcement") {
-      const { id, created_at, posted_date, updated_at, ...dataToRestore } = originalData;
+      const { id, created_at, posted_date, updated_at, ...dataToRestore } =
+        originalData;
 
       const { error } = await supabase.from("announcements").insert([dataToRestore]);
 
@@ -121,7 +180,6 @@ export async function restoreFromArchive(
       const residentId = dataToRestore.resident_id as number;
       const appointmentId = dataToRestore.appointment_id as number | null;
 
-      // ✅ Check resident exists
       const { data: residentExists } = await adminClient
         .from("residents")
         .select("id")
@@ -134,7 +192,6 @@ export async function restoreFromArchive(
         );
       }
 
-      // Check appointment if specified
       if (appointmentId) {
         const { data: appointmentExists } = await adminClient
           .from("appointments")
@@ -151,6 +208,12 @@ export async function restoreFromArchive(
       }
 
       const { error } = await supabase.from("feedback").insert([dataToRestore]);
+
+      if (error) throw error;
+    } else if (type === "schedule") {
+      const { id, created_at, ...dataToRestore } = originalData;
+
+      const { error } = await supabase.from("schedules").insert([dataToRestore]);
 
       if (error) throw error;
     }
@@ -181,7 +244,8 @@ async function restoreAppointment(
   originalData: Record<string, unknown>,
   supabase: any
 ) {
-  const { id, created_at, residents, services, schedules, ...dataToRestore } = originalData;
+  const { id, created_at, residents, services, schedules, ...dataToRestore } =
+    originalData;
 
   const { error } = await supabase.from("appointments").insert([dataToRestore]);
 
@@ -192,7 +256,8 @@ async function restoreAnnouncement(
   originalData: Record<string, unknown>,
   supabase: any
 ) {
-  const { id, created_at, posted_date, updated_at, ...dataToRestore } = originalData;
+  const { id, created_at, posted_date, updated_at, ...dataToRestore } =
+    originalData;
 
   const { error } = await supabase.from("announcements").insert([dataToRestore]);
 

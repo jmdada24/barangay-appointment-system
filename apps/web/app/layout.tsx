@@ -53,7 +53,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         data-gramm_editor="false"
         data-enable-grammarly="false"
       >
-
         {children}
         <FloatingChatbot />
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import { Calendar, Filter, MessageSquare, Star, Trash2, User, Archive, Loader2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ type FeedbackData = {
   id: number;
   resident_id: number;
   rating: number;
-  individual_ratings?: Record<number, number>; // ✅ NEW: From database
+  individual_ratings?: Record<number, number>;
   category: FeedbackCategory;
   comments: string;
   appointment_id?: number | null;
@@ -183,10 +184,11 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
 
     if (result.success) {
       setFeedbacks((prev) => prev.filter((f) => f.id !== selectedFeedback.id));
+      toast.success("Feedback archived successfully.");
       setShowArchiveModal(false);
       setSelectedFeedback(null);
     } else {
-      alert(result.error || "Failed to archive feedback");
+      toast.error(result.error || "Failed to archive feedback.");
     }
 
     setActionLoading(false);
@@ -200,10 +202,11 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
 
     if (result.success) {
       setFeedbacks((prev) => prev.filter((f) => f.id !== selectedFeedback.id));
+      toast.success("Feedback deleted successfully.");
       setShowDeleteModal(false);
       setSelectedFeedback(null);
     } else {
-      alert(result.error || "Failed to delete feedback");
+      toast.error(result.error || "Failed to delete feedback.");
     }
 
     setActionLoading(false);
@@ -395,29 +398,29 @@ export default function FeedbackPage({ role }: FeedbackPageProps) {
                   </div>
                 </div>
 
-                {/* ✅ NEW: Expanded Details Section */}
+                {/* Expanded Details Section */}
                 {expandedFeedbackId === feedback.id && (
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
                     <div className="space-y-3">
                       <h4 className="font-semibold text-sm text-gray-900">Individual Ratings</h4>
                       {satisfactionQuestions.map((question, index) => {
                         const rating = feedback.individual_ratings?.[index] || feedback.rating;
-                          return (
-                            <div key={index} className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-gray-700">
-                                  {index + 1}. {question}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <RatingStars rating={rating} size="sm" />
-                                <span className="text-xs font-medium text-gray-600 min-w-fit">
-                                  {rating}/5
-                                </span>
-                              </div>
+                        return (
+                          <div key={index} className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-700">
+                                {index + 1}. {question}
+                              </p>
                             </div>
-                          );
-                        })}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <RatingStars rating={rating} size="sm" />
+                              <span className="text-xs font-medium text-gray-600 min-w-fit">
+                                {rating}/5
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

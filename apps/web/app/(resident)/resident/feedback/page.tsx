@@ -21,7 +21,6 @@ export default function ResidentFeedback() {
   const router = useRouter();
   const supabase = createClient();
 
-  // ✅ CHANGED: Read from sessionStorage instead of URL
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
   const [residentId, setResidentId] = useState<number | null>(null);
   const [ratings, setRatings] = useState<Record<number, number>>({});
@@ -62,7 +61,7 @@ export default function ResidentFeedback() {
           setResidentId(residentRecord.id);
         }
       } catch (err) {
-        console.error("Error getting resident info:", err);
+        console.error("Error getting resident info");
       } finally {
         setPageLoading(false);
       }

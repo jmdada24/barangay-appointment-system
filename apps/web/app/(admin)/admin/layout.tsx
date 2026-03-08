@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import AppSidebar from "@/components/layout/AppSidebar";
 import AdminMainHeader from "@/components/layout/MainHeader";
+import IdleLogout from "@/components/auth/IdleLogout";
 
 type MainHeaderItem = {
   lblTitle: string;
@@ -26,6 +27,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="h-dvh overflow-hidden bg-background">
+      <IdleLogout idleMs={30 * 60 * 1000} />
+      
       <div className="flex h-full">
         {/* Sidebar */}
         <AppSidebar

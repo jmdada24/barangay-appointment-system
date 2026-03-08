@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
 import {
   Users,
   BadgeCheck,
@@ -18,16 +20,14 @@ import {
   Search,
   Plus,
   Pencil,
-  Trash2,
   Archive,
   Eye,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
-import {
-  getResidents,
-  deleteResident,
-} from "@/actions/residents";
+import { getResidents, deleteResident } from "@/actions/residents";
 import type { ResidentWithUser, VerificationStatus } from "@/types/resident";
 
 import {
@@ -35,7 +35,6 @@ import {
   ResidentEditDialog,
   ResidentViewDialog,
   ArchiveDialog,
-  DeleteDialog,
 } from "@/components/forms";
 
 type UserRole = "admin" | "staff";
@@ -43,6 +42,8 @@ type UserRole = "admin" | "staff";
 interface ResidentsPageProps {
   role: UserRole;
 }
+
+const ITEMS_PER_PAGE = 10;
 
 function StatusPill({ status }: { status: VerificationStatus }) {
   const styles = {
@@ -71,16 +72,14 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | VerificationStatus>("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [selectedResident, setSelectedResident] = useState<ResidentWithUser | null>(null);
 
-  // Fetch residents
   async function fetchResidents() {
     setLoading(true);
     const { data } = await getResidents();
@@ -92,7 +91,6 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
     fetchResidents();
   }, []);
 
-  // Filter residents
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return residents.filter((r) => {
@@ -102,18 +100,35 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
         r.name.toLowerCase().includes(q) ||
         email.toLowerCase().includes(q) ||
         (r.phone_number || "").toLowerCase().includes(q);
+
       const matchesStatus =
         statusFilter === "all" || r.verification_status === statusFilter;
+
       return matchesQuery && matchesStatus;
     });
   }, [query, statusFilter, residents]);
 
-  // Stats
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+
+  const paginatedResidents = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filtered.slice(start, start + ITEMS_PER_PAGE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, statusFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const totalResidents = residents.length;
   const verifiedCount = residents.filter((r) => r.verification_status === "verified").length;
   const pendingCount = residents.filter((r) => r.verification_status === "pending").length;
 
-  // Handlers
   function handleViewClick(resident: ResidentWithUser) {
     setSelectedResident(resident);
     setShowViewModal(true);
@@ -126,30 +141,27 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
 
   function handleRemoveClick(resident: ResidentWithUser) {
     setSelectedResident(resident);
-    if (role === "staff") {
-      setShowArchiveModal(true);
-    } else {
-      setShowDeleteModal(true);
-    }
+    setShowArchiveModal(true);
   }
 
   async function handleArchiveConfirm() {
     if (!selectedResident) return;
-    // Staff archives (calls deleteResident which archives first)
-    await deleteResident(selectedResident.id);
+
+    const result = await deleteResident(selectedResident.id);
+
+    if (!result.success) {
+      toast.error(result.error || "Failed to archive resident.");
+      return;
+    }
+
+    toast.success("Resident archived successfully.");
     await fetchResidents();
     setSelectedResident(null);
     setShowArchiveModal(false);
   }
 
-  async function handleDeleteConfirm() {
-    if (!selectedResident) return;
-    // Admin deletes (calls deleteResident which archives first)
-    await deleteResident(selectedResident.id);
-    await fetchResidents();
-    setSelectedResident(null);
-    setShowDeleteModal(false);
-  }
+  const startItem = filtered.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1;
+  const endItem = Math.min(currentPage * ITEMS_PER_PAGE, filtered.length);
 
   return (
     <div className="space-y-6">
@@ -199,7 +211,7 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
       <Card className="rounded-xl bg-white shadow-sm">
         <CardContent className="p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-md">
+            <div className="relative w-full flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
@@ -209,12 +221,12 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
               />
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
               <Select
                 value={statusFilter}
                 onValueChange={(value) => setStatusFilter(value as "all" | VerificationStatus)}
               >
-                <SelectTrigger className="min-h-12 h-12 w-[160px] rounded-lg">
+                <SelectTrigger className="h-12 min-h-12 w-full rounded-lg sm:w-[160px]">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -227,7 +239,7 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
 
               <Button
                 size="lg"
-                className="rounded-lg bg-primary hover:bg-primary/90 py-6"
+                className="rounded-lg bg-primary py-6 hover:bg-primary/90"
                 onClick={() => setShowAddModal(true)}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -236,7 +248,12 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
             </div>
           </div>
 
-          {/* Table */}
+          <div className="mt-6 flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              Showing {startItem}-{endItem} of {filtered.length} residents
+            </span>
+          </div>
+
           <div className="mt-8 overflow-hidden rounded-lg border">
             <div className="grid grid-cols-12 bg-gray-50 p-3 text-sm font-semibold text-muted-foreground">
               <div className="col-span-3">RESIDENT INFO</div>
@@ -252,14 +269,14 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
               </div>
             ) : (
               <div className="divide-y">
-                {filtered.map((r) => (
+                {paginatedResidents.map((r) => (
                   <div key={r.id} className="grid grid-cols-12 items-center bg-white p-3">
                     <div className="col-span-3">
                       <div className="font-medium text-gray-900">{r.name}</div>
                       <div className="text-xs text-muted-foreground">{r.users?.email}</div>
                     </div>
                     <div className="col-span-2 text-sm text-gray-900">{r.phone_number || "-"}</div>
-                    <div className="col-span-3 text-sm text-muted-foreground truncate">
+                    <div className="col-span-3 truncate text-sm text-muted-foreground">
                       {r.address || "-"}
                     </div>
                     <div className="col-span-2 flex justify-center">
@@ -281,19 +298,11 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
-                        className={`rounded-md p-1 ${
-                          role === "staff"
-                            ? "text-yellow-600 hover:bg-yellow-50"
-                            : "text-red-600 hover:bg-red-50"
-                        }`}
-                        title={role === "staff" ? "Archive" : "Delete"}
+                        className="rounded-md p-1 text-yellow-600 hover:bg-yellow-50"
+                        title="Archive"
                         onClick={() => handleRemoveClick(r)}
                       >
-                        {role === "staff" ? (
-                          <Archive className="h-4 w-4" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
+                        <Archive className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
@@ -307,10 +316,41 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
               </div>
             )}
           </div>
+
+          {filtered.length > 0 && (
+            <div className="mt-6 flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </p>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  Previous
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Dialogs */}
       <ResidentFormDialog
         open={showAddModal}
         onOpenChange={setShowAddModal}
@@ -345,16 +385,6 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
         }}
         name={selectedResident?.name || ""}
         onConfirm={handleArchiveConfirm}
-      />
-
-      <DeleteDialog
-        open={showDeleteModal}
-        onOpenChange={(open) => {
-          setShowDeleteModal(open);
-          if (!open) setSelectedResident(null);
-        }}
-        name={selectedResident?.name || ""}
-        onConfirm={handleDeleteConfirm}
       />
     </div>
   );

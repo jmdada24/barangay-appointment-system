@@ -211,18 +211,7 @@ function ViewDetailsModal({
               )}
             </Button>
           )}
-          {canRate && (
-            <Button
-              className="flex-1 bg-green-600 hover:bg-green-700"
-              onClick={() => {
-                onRateClick(appointment.id);
-                onClose();
-              }}
-            >
-              <Star className="w-4 h-4 mr-2" />
-              Rate Us
-            </Button>
-          )}
+          
           <Button
             onClick={onClose}
             className="flex-1 bg-primary hover:bg-primary/90"

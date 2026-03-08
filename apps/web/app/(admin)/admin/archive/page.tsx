@@ -21,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/utils/supabase/client";
 
-// ✅ import server actions
+
 import {
   getArchivedItems,
   restoreArchivedItem,
@@ -266,7 +266,7 @@ export default function AdminArchivePage() {
     if (!selectedItem) return;
     setActionLoading(true);
 
-    // ✅ Show loading toast
+    
     const loadingToast = toast.loading("Restoring item...");
 
     const res = await restoreArchivedItem(selectedItem.id);
@@ -275,16 +275,16 @@ export default function AdminArchivePage() {
       setArchivedItems((prev) => prev.filter((i) => i.id !== selectedItem.id));
       setShowRestoreModal(false);
       
-      // ✅ Replace loading toast with success
+      
       toast.success(`"${selectedItem.title}" has been restored successfully`, {
         id: loadingToast,
         duration: 4000,
-        icon: "✅",
+        
       });
 
       setSelectedItem(null);
     } else {
-      // ✅ Replace loading toast with error
+      
       toast.error(res.error ?? "Failed to restore item", {
         id: loadingToast,
         duration: 4000,

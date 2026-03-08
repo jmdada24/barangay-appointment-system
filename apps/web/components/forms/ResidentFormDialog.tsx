@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,7 +36,7 @@ import {
 
 import ValidIdUpload from "./ValidIdUpload";
 import { createResident } from "@/actions/residents";
-import { uploadValidId } from "@/actions/valid-id";  
+import { uploadValidId } from "@/actions/valid-id";
 import { uploadFacePhoto } from "@/actions/face-photos";
 import { CameraCapture } from "@/components/camera-capture";
 
@@ -77,9 +78,7 @@ const schema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters."),
   dob: z.string().min(1, "Date of birth is required."),
   sex: z.enum(["male", "female"], { message: "Sex is required." }),
-
 });
-
 
 type FormValues = z.infer<typeof schema>;
 
@@ -103,7 +102,6 @@ export default function ResidentFormDialog({
   const [facePhotoPreview, setFacePhotoPreview] = useState<string | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
 
-  // Success modal state
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState<{
     email: string;
@@ -132,19 +130,16 @@ export default function ResidentFormDialog({
     },
   });
 
-  // Regenerate password
   function handleRegeneratePassword() {
     setValue("password", generateTempPassword());
   }
 
-  // Copy to clipboard
   async function handleCopy(text: string, field: "email" | "password") {
     await navigator.clipboard.writeText(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
   }
 
-  // Reset form
   function resetForm() {
     reset({
       firstName: "",
@@ -160,26 +155,22 @@ export default function ResidentFormDialog({
     setValidIdError(null);
     setFacePhotoFile(null);
     setFacePhotoError(null);
-    setFacePhotoPreview(null); // ADD THIS
+    setFacePhotoPreview(null);
     setFormError(null);
   }
 
   const handleFacePhotoCapture = (file: File) => {
     setFacePhotoFile(file);
     setFacePhotoError(null);
-
-    // Create preview
     const preview = URL.createObjectURL(file);
     setFacePhotoPreview(preview);
   };
-
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
     setValidIdError(null);
     setFacePhotoError(null);
 
-    // Validate both files
     if (!validIdFile) {
       setValidIdError("Valid ID document is required.");
       return;
@@ -192,7 +183,6 @@ export default function ResidentFormDialog({
 
     startTransition(async () => {
       try {
-        // 1. Upload Valid ID to valid-ids bucket
         const validIdFormData = new FormData();
         validIdFormData.append("file", validIdFile);
 
@@ -201,10 +191,9 @@ export default function ResidentFormDialog({
           setFormError(validIdResult.error || "Failed to upload Valid ID");
           return;
         }
-        // ✅ Use the full URL, not the path
+
         const validIdUrl = (validIdResult.data as { url: string }).url;
 
-        // 2. Upload Face Photo to face-photos bucket
         const facePhotoFormData = new FormData();
         facePhotoFormData.append("file", facePhotoFile);
 
@@ -213,10 +202,9 @@ export default function ResidentFormDialog({
           setFormError(facePhotoResult.error || "Failed to upload face photo");
           return;
         }
-        // ✅ Use the full URL, not the path
+
         const facePhotoUrl = (facePhotoResult.data as { url: string }).url;
 
-        // 3. Create the resident with BOTH photo URLs
         const { error } = await createResident({
           email: values.email,
           password: values.password,
@@ -224,13 +212,14 @@ export default function ResidentFormDialog({
           address: values.address,
           phone_number: values.contactNumber,
           birthdate: values.dob,
-          valid_id_url: validIdUrl,      // ✅ Full URL
-          face_photo_url: facePhotoUrl,  // ✅ Full URL
+          valid_id_url: validIdUrl,
+          face_photo_url: facePhotoUrl,
           sex: values.sex,
         });
 
         if (error) {
           setFormError(error);
+          toast.error(error);
           return;
         }
 
@@ -239,18 +228,20 @@ export default function ResidentFormDialog({
           password: values.password,
         });
 
+        toast.success("Resident created successfully.");
+
         onOpenChange(false);
         setShowSuccessModal(true);
         onSuccess();
       } catch (error) {
-        setFormError(
-          error instanceof Error ? error.message : "Something went wrong."
-        );
+        const message =
+          error instanceof Error ? error.message : "Something went wrong.";
+        setFormError(message);
+        toast.error(message);
       }
     });
   });
 
-  // Handle dialog close
   function handleOpenChange(newOpen: boolean) {
     if (!newOpen) {
       resetForm();
@@ -258,7 +249,6 @@ export default function ResidentFormDialog({
     onOpenChange(newOpen);
   }
 
-  // Handle success modal close
   function handleSuccessClose() {
     setShowSuccessModal(false);
     setCreatedCredentials(null);
@@ -267,7 +257,6 @@ export default function ResidentFormDialog({
 
   return (
     <>
-      {/* ADD RESIDENT DIALOG */}
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -291,7 +280,6 @@ export default function ResidentFormDialog({
               </div>
             )}
 
-            {/* First + Last Name */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
@@ -328,7 +316,6 @@ export default function ResidentFormDialog({
               </div>
             </div>
 
-            {/* Address */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
                 Address <span className="text-red-500">*</span>
@@ -344,7 +331,6 @@ export default function ResidentFormDialog({
               )}
             </div>
 
-            {/* Email + Contact */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
@@ -383,7 +369,6 @@ export default function ResidentFormDialog({
               </div>
             </div>
 
-            {/* Temporary Password */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
                 Temporary Password <span className="text-red-500">*</span>
@@ -403,7 +388,7 @@ export default function ResidentFormDialog({
                       <button
                         type="button"
                         onClick={() => handleCopy(field.value, "password")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-gray-100"
                         title="Copy password"
                       >
                         {copiedField === "password" ? (
@@ -436,8 +421,6 @@ export default function ResidentFormDialog({
               )}
             </div>
 
-
-            {/* DOB + Sex */}
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
@@ -485,7 +468,6 @@ export default function ResidentFormDialog({
               </div>
             </div>
 
-            {/* Valid ID Upload Section */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">
                 Valid ID Document <span className="text-red-500">*</span>
@@ -498,7 +480,6 @@ export default function ResidentFormDialog({
               />
             </div>
 
-            {/* Face Photo Capture Section */}
             <div className="space-y-4">
               <Label className="text-sm font-medium">
                 Resident Face Photo <span className="text-red-500">*</span>
@@ -518,16 +499,16 @@ export default function ResidentFormDialog({
                   Take Resident Photo
                 </Button>
               ) : (
-                <div className="relative w-full rounded-lg border border-border overflow-hidden bg-muted/30">
+                <div className="relative w-full overflow-hidden rounded-lg border border-border bg-muted/30">
                   <div className="flex items-start gap-4 p-4">
-                    <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                    <div className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
                       <img
                         src={facePhotoPreview || ""}
                         alt="Face Photo Preview"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">
                         {facePhotoFile.name}
                       </p>
@@ -578,24 +559,20 @@ export default function ResidentFormDialog({
               </Button>
             </DialogFooter>
           </form>
+
           <CameraCapture
             open={showCameraModal}
             onOpenChange={setShowCameraModal}
             onCapture={handleFacePhotoCapture}
           />
-
-
         </DialogContent>
       </Dialog>
 
-
-
-      {/* SUCCESS DIALOG - CREDENTIALS */}
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader className="text-center sm:text-center">
-            <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-              <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+              <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
             <DialogTitle className="text-xl font-semibold">
               Resident Created Successfully!
@@ -607,11 +584,11 @@ export default function ResidentFormDialog({
 
           {createdCredentials && (
             <div className="space-y-4">
-              <div className="space-y-4 bg-gray-50 rounded-lg p-4">
+              <div className="space-y-4 rounded-lg bg-gray-50 p-4">
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Email</Label>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 bg-white border rounded-md px-3 py-2 text-sm font-mono">
+                    <code className="flex-1 rounded-md border bg-white px-3 py-2 text-sm font-mono">
                       {createdCredentials.email}
                     </code>
                     <Button
@@ -636,7 +613,7 @@ export default function ResidentFormDialog({
                     Temporary Password
                   </Label>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 bg-white border rounded-md px-3 py-2 text-sm font-mono">
+                    <code className="flex-1 rounded-md border bg-white px-3 py-2 text-sm font-mono">
                       {createdCredentials.password}
                     </code>
                     <Button
@@ -659,10 +636,10 @@ export default function ResidentFormDialog({
 
               <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
                 <div className="flex gap-2">
-                  <KeyRound className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                   <div className="text-sm text-amber-800">
                     <p className="font-medium">Important</p>
-                    <p className="text-xs mt-1">
+                    <p className="mt-1 text-xs">
                       The resident should change this password after their first
                       login for security purposes.
                     </p>
@@ -671,7 +648,7 @@ export default function ResidentFormDialog({
               </div>
 
               <Button
-                className="w-full h-12 bg-primary hover:bg-primary/90"
+                className="h-12 w-full bg-primary hover:bg-primary/90"
                 onClick={handleSuccessClose}
               >
                 Done
@@ -680,7 +657,6 @@ export default function ResidentFormDialog({
           )}
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

@@ -35,7 +35,7 @@ export async function changePassword(
     });
 
     if (error) {
-      console.error("Change password error:", error);
+      console.error("Change password error");
       return {
         success: false,
         error: error.message || "Failed to change password",
@@ -61,7 +61,7 @@ export async function changePassword(
       data: { message: "Password changed successfully" },
     };
   } catch (error) {
-    console.error("Unexpected error in changePassword:", error);
+    console.error("Unexpected error in change password");
     return {
       success: false,
       error:
@@ -96,7 +96,7 @@ export async function forceChangePassword(
       .single();
 
     if (residentError || !resident) {
-      console.error("Resident fetch error:", residentError);
+      console.error("Resident fetch error");
       return {
         success: false,
         error: "Resident not found",
@@ -111,7 +111,7 @@ export async function forceChangePassword(
       .single();
 
     if (userError || !userRecord) {
-      console.error("User fetch error:", userError);
+      console.error("User fetch error");
       return {
         success: false,
         error: "User not found",
@@ -135,7 +135,7 @@ export async function forceChangePassword(
     );
 
     if (updateError) {
-      console.error("Password update error:", updateError);
+      console.error("Password update error");
       return {
         success: false,
         error: updateError.message || "Failed to update password",
@@ -149,7 +149,7 @@ export async function forceChangePassword(
       .eq("id", residentId);
 
     if (updateResidentError) {
-      console.error("Resident update error:", updateResidentError);
+      console.error("Resident update error");
       return {
         success: false,
         error: "Password changed but failed to update resident status",
@@ -163,7 +163,7 @@ export async function forceChangePassword(
       },
     };
   } catch (error) {
-    console.error("Unexpected error in forceChangePassword:", error);
+    console.error("Unexpected error in force change password");
     return {
       success: false,
       error:

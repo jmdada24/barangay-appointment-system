@@ -25,6 +25,8 @@ interface Position {
   y: number;
 }
 
+const MAX_USER_TURNS = 15;
+
 export default function FloatingChatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -40,19 +42,28 @@ export default function FloatingChatbot() {
   const inputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<HTMLDivElement>(null);
 
+  const userTurns = messages.filter((m) => m.role === "user").length;
+  const limitReached = userTurns >= MAX_USER_TURNS;
+
+  function closeAndReset() {
+    setIsOpen(false);
+    setMessages([]);
+    setInput("");
+    setError(null);
+    setLoading(false);
+  }
+
   // Initialize position on mount (right side)
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      
+
       if (mobile) {
-        // Mobile: Center at bottom
         const centerX = (window.innerWidth - 340) / 2;
         const topY = window.innerHeight - 620;
         setPosition({ x: centerX, y: topY });
       } else {
-        // Desktop: Right side
         const rightX = window.innerWidth - 420;
         const topY = 20;
         setPosition({ x: rightX, y: topY });
@@ -71,12 +82,12 @@ export default function FloatingChatbot() {
     }
   }, [isOpen, messages.length]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Dragging functionality
+  // Dragging
   useEffect(() => {
     if (!isDragging) return;
 
@@ -84,22 +95,16 @@ export default function FloatingChatbot() {
       let newX = e.clientX - dragOffset.x;
       let newY = e.clientY - dragOffset.y;
 
-      // Keep window within viewport
       const maxX = window.innerWidth - (isMobile ? 340 : 400);
       const maxY = window.innerHeight - (isMobile ? 620 : 600);
 
       newX = Math.max(0, Math.min(newX, maxX));
       newY = Math.max(0, Math.min(newY, maxY));
 
-      setPosition({
-        x: newX,
-        y: newY,
-      });
+      setPosition({ x: newX, y: newY });
     };
 
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
+    const handleMouseUp = () => setIsDragging(false);
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
@@ -113,10 +118,7 @@ export default function FloatingChatbot() {
   function handleDragStart(e: React.MouseEvent) {
     if (!dragRef.current) return;
     const rect = dragRef.current.getBoundingClientRect();
-    setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
+    setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     setIsDragging(true);
   }
 
@@ -141,6 +143,21 @@ export default function FloatingChatbot() {
 
     if (!input.trim() || loading) return;
 
+    if (limitReached) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `limit-${Date.now()}`,
+          role: "assistant",
+          content:
+            "You have reached the maximum of 15 questions for this chat session. Please refresh the page or close and reopen the chatbot to start a new session.",
+          timestamp: new Date(),
+        },
+      ]);
+      setInput("");
+      return;
+    }
+
     const userMessage = input.trim();
     setInput("");
     setError(null);
@@ -156,12 +173,10 @@ export default function FloatingChatbot() {
     setLoading(true);
 
     try {
-      const history = messages
-        .slice(-10)
-        .map((msg) => ({
-          role: msg.role === "user" ? "user" : "model",
-          content: msg.content,
-        }));
+      const history = messages.slice(-10).map((msg) => ({
+        role: msg.role === "user" ? "user" : "model",
+        content: msg.content,
+      }));
 
       const result = await sendChatMessage(userMessage, history);
 
@@ -184,7 +199,7 @@ export default function FloatingChatbot() {
     }
   }
 
-  // Floating button (when closed)
+  // Floating button (closed)
   if (!isOpen) {
     return (
       <button
@@ -197,7 +212,7 @@ export default function FloatingChatbot() {
     );
   }
 
-  // Floating chat window (draggable & responsive)
+  // Chat window
   return (
     <div
       style={{
@@ -219,18 +234,17 @@ export default function FloatingChatbot() {
           <GripHorizontal className="h-4 w-4 opacity-60 group-hover:opacity-100 transition shrink-0" />
           <div className="min-w-0">
             <h3 className="font-semibold text-xs sm:text-sm truncate">Barangay Assistant</h3>
-            <p className="text-xs text-green-100 truncate">Ask about our services</p>
+            <p className="text-xs text-green-100 truncate">
+              Ask about our services ({Math.max(0, MAX_USER_TURNS - userTurns)} left)
+            </p>
           </div>
         </div>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="hover:bg-white/20 p-1 rounded transition shrink-0 ml-2"
-        >
+        <button onClick={closeAndReset} className="hover:bg-white/20 p-1 rounded transition shrink-0 ml-2">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Messages Container */}
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-gray-50">
         {messages.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
@@ -240,12 +254,7 @@ export default function FloatingChatbot() {
         ) : (
           <>
             {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
+              <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={`max-w-xs rounded-lg px-3 py-2 text-xs sm:text-sm break-words ${
                     message.role === "user"
@@ -253,14 +262,9 @@ export default function FloatingChatbot() {
                       : "bg-gray-200 text-gray-900 rounded-bl-none"
                   }`}
                 >
-                  <p className="leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
+                  <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
                   <span className="text-xs opacity-70 mt-1 block">
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </div>
               </div>
@@ -286,29 +290,22 @@ export default function FloatingChatbot() {
       </div>
 
       {/* Input */}
-      <form
-        onSubmit={handleSendMessage}
-        className="p-3 sm:p-4 border-t bg-white rounded-b-xl flex gap-2 shrink-0"
-      >
+      <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t bg-white rounded-b-xl flex gap-2 shrink-0">
         <Input
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question..."
-          disabled={loading}
+          placeholder={limitReached ? "Chat limit reached. Close to reset." : "Ask a question..."}
+          disabled={loading || limitReached}
           className="text-xs sm:text-sm h-8 sm:h-9"
         />
         <Button
           type="submit"
-          disabled={loading || !input.trim()}
+          disabled={loading || limitReached || !input.trim()}
           size="icon"
           className="bg-[#062E24] hover:bg-[#051f1a] h-8 w-8 sm:h-9 sm:w-9 shrink-0"
         >
-          {loading ? (
-            <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-          ) : (
-            <Send className="h-3 w-3 sm:h-4 sm:w-4" />
-          )}
+          {loading ? <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" /> : <Send className="h-3 w-3 sm:h-4 sm:w-4" />}
         </Button>
       </form>
     </div>

@@ -1,31 +1,36 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { restoreFromArchive } from "@/utils/archive-helper";
-import { revalidatePath } from "next/cache";
 
 async function requireAdmin() {
   const serverClient = await createClient();
   const adminClient = createAdminClient();
 
-  // ✅ FIX: Use serverClient to get the authenticated user
   const {
     data: { user },
     error: userError,
   } = await serverClient.auth.getUser();
 
-  if (userError || !user) return { ok: false as const, error: "Unauthorized" };
+  if (userError || !user) {
+    return { ok: false as const, error: "Unauthorized" };
+  }
 
-  // ✅ Use adminClient to check role in database
   const { data: row, error: roleError } = await adminClient
     .from("users")
     .select("role")
     .eq("auth_id", user.id)
     .single();
 
-  if (roleError) return { ok: false as const, error: "Role check failed" };
-  if (row?.role !== "admin") return { ok: false as const, error: "Forbidden" };
+  if (roleError) {
+    return { ok: false as const, error: "Role check failed" };
+  }
+
+  if (row?.role !== "admin") {
+    return { ok: false as const, error: "Forbidden" };
+  }
 
   return { ok: true as const, supabase: adminClient, user };
 }
@@ -34,8 +39,6 @@ export async function getArchivedItems() {
   const gate = await requireAdmin();
   if (!gate.ok) return { success: false, error: gate.error };
 
-  // ✅ FIX: Don't try to join with users table, just fetch archive data
-  // We'll get the admin email from archived_by field (UUID) on the client side
   const { data, error } = await gate.supabase
     .from("archive")
     .select("*")
@@ -43,35 +46,39 @@ export async function getArchivedItems() {
 
   if (error) return { success: false, error: error.message };
 
-  // ✅ FIX: Get admin details for each archived item
-  const enrichedData = await Promise.all(
-    (data || []).map(async (item) => {
-      // Get the admin user record using archived_by (auth_id)
-      const { data: adminUser } = await gate.supabase
-        .from("users")
-        .select("email")
-        .eq("auth_id", item.archived_by)
-        .single();
-
-      return {
-        ...item,
-        archivedByEmail: adminUser?.email || "Unknown",
-      };
-    })
+  const archivedByIds = Array.from(
+    new Set((data ?? []).map((item) => item.archived_by).filter(Boolean))
   );
+
+  let adminMap = new Map<string, string>();
+
+  if (archivedByIds.length > 0) {
+    const { data: adminUsers } = await gate.supabase
+      .from("users")
+      .select("auth_id, email")
+      .in("auth_id", archivedByIds);
+
+    adminMap = new Map(
+      (adminUsers ?? []).map((u) => [String(u.auth_id), u.email ?? "Unknown"])
+    );
+  }
+
+  const enrichedData = (data ?? []).map((item) => ({
+    ...item,
+    archivedByEmail: adminMap.get(String(item.archived_by)) ?? "Unknown",
+  }));
 
   return { success: true, data: enrichedData };
 }
 
 /**
- * Restore an archived item back to its original table
+ * Restore an archived item back to its original table.
  */
 export async function restoreArchivedItem(archivedId: number) {
   const gate = await requireAdmin();
   if (!gate.ok) return { success: false, error: gate.error };
 
   try {
-    // 1. Get archive record to know the type and original data
     const { data: archiveRecord, error: fetchError } = await gate.supabase
       .from("archive")
       .select("*")
@@ -82,14 +89,12 @@ export async function restoreArchivedItem(archivedId: number) {
       return { success: false, error: "Archive record not found" };
     }
 
-    // 2. Restore using helper function (passes supabase client)
     await restoreFromArchive(
       archiveRecord.type,
       archiveRecord.original_data,
       gate.supabase
     );
 
-    // 3. Remove from archive
     const { error: deleteError } = await gate.supabase
       .from("archive")
       .delete()
@@ -99,16 +104,17 @@ export async function restoreArchivedItem(archivedId: number) {
       return { success: false, error: deleteError.message };
     }
 
-    // 4. Revalidate affected pages
-    revalidatePath("/admin/residents");
-    revalidatePath("/admin/appointments");
-    revalidatePath("/admin/announcements");
+    // Revalidate all admin pages that can be affected
+    revalidatePath("/admin/resident");
+    revalidatePath("/admin/appointment");
+    revalidatePath("/admin/announcement");
     revalidatePath("/admin/feedback");
+    revalidatePath("/admin/schedule");
     revalidatePath("/admin/archive");
 
     return { success: true };
   } catch (error) {
-    console.error("Error restoring archived item:", error);
+    console.error("Error restoring archived item");
     return {
       success: false,
       error:
@@ -118,7 +124,7 @@ export async function restoreArchivedItem(archivedId: number) {
 }
 
 /**
- * Permanently delete from archive (second stage delete)
+ * Permanently delete from archive only.
  */
 export async function deleteArchivedItem(archivedId: number) {
   const gate = await requireAdmin();
@@ -132,12 +138,11 @@ export async function deleteArchivedItem(archivedId: number) {
 
     if (error) return { success: false, error: error.message };
 
-    // Revalidate archive page
     revalidatePath("/admin/archive");
 
     return { success: true };
   } catch (error) {
-    console.error("Error deleting archived item:", error);
+    console.error("Error deleting archived item");
     return {
       success: false,
       error:

@@ -3,30 +3,35 @@
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { revalidatePath } from "next/cache";
-import type { CreateResidentInput, UpdateResidentInput, ResidentWithUser, VerificationStatus } from "@/types/resident";
+import type {
+  CreateResidentInput,
+  UpdateResidentInput,
+  ResidentWithUser,
+} from "@/types/resident";
 
 import { archiveItem } from "@/utils/archive-helper";
-
 
 // ============================================
 // FETCH ALL RESIDENTS
 // ============================================
 export async function getResidents() {
-  const supabase = createAdminClient(); // Use admin client to bypass RLS
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("residents")
-    .select(`
+    .select(
+      `
       *,
       users (
         email,
         auth_id
       )
-    `)
+    `
+    )
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching residents:", error);
+    console.error("Error fetching residents");
     return { data: null, error: error.message };
   }
 
@@ -41,18 +46,20 @@ export async function getResident(id: number) {
 
   const { data, error } = await supabase
     .from("residents")
-    .select(`
+    .select(
+      `
       *,
       users (
         email,
         auth_id
       )
-    `)
+    `
+    )
     .eq("id", id)
     .single();
 
   if (error) {
-    console.error("Error fetching resident:", error);
+    console.error("Error fetching resident");
     return { data: null, error: error.message };
   }
 
@@ -66,15 +73,50 @@ export async function createResident(input: CreateResidentInput) {
   const supabase = createAdminClient();
 
   try {
+    const normalizedEmail = input.email.trim().toLowerCase();
+
+    const { data: existingUser, error: existingUserError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", normalizedEmail)
+      .maybeSingle();
+
+    if (existingUserError) {
+      console.error("Error checking existing email");
+      return { data: null, error: "Failed to validate email address." };
+    }
+
+    if (existingUser) {
+      return {
+        data: null,
+        error: "An account with this email already exists.",
+      };
+    }
+
     // 1. Create auth user
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email: input.email,
-      password: input.password,
-      email_confirm: true, // Auto-confirm since admin is creating
-    });
+    const { data: authData, error: authError } =
+      await supabase.auth.admin.createUser({
+        email: normalizedEmail,
+        password: input.password,
+        email_confirm: true,
+      });
 
     if (authError) {
-      console.error("Error creating auth user:", authError);
+      console.error("Error creating auth user");
+
+      const authMessage = authError.message.toLowerCase();
+      if (
+        authMessage.includes("already been registered") ||
+        authMessage.includes("already registered") ||
+        authMessage.includes("user already registered") ||
+        authMessage.includes("duplicate")
+      ) {
+        return {
+          data: null,
+          error: "An account with this email already exists.",
+        };
+      }
+
       return { data: null, error: authError.message };
     }
 
@@ -83,7 +125,7 @@ export async function createResident(input: CreateResidentInput) {
       .from("users")
       .insert({
         auth_id: authData.user.id,
-        email: input.email,
+        email: normalizedEmail,
         role: "resident",
       })
       .select()
@@ -91,11 +133,22 @@ export async function createResident(input: CreateResidentInput) {
 
     if (userError) {
       await supabase.auth.admin.deleteUser(authData.user.id);
-      console.error("Error creating user record:", userError);
+      console.error("Error creating user record");
+
+      if (
+        userError.message.includes("users_email_key") ||
+        userError.message.toLowerCase().includes("duplicate key value")
+      ) {
+        return {
+          data: null,
+          error: "An account with this email already exists.",
+        };
+      }
+
       return { data: null, error: userError.message };
     }
 
-    // 3. Create resident profile with must_change_password = true
+    // 3. Create resident profile
     const { data: residentData, error: residentError } = await supabase
       .from("residents")
       .insert({
@@ -107,8 +160,8 @@ export async function createResident(input: CreateResidentInput) {
         valid_id_url: input.valid_id_url || null,
         face_photo_url: input.face_photo_url,
         sex: input.sex || null,
-        verification_status: "verified", // Auto-verify when admin creates
-        must_change_password: true, // Force password change on first login
+        verification_status: "verified",
+        must_change_password: true,
       })
       .select()
       .single();
@@ -116,7 +169,7 @@ export async function createResident(input: CreateResidentInput) {
     if (residentError) {
       await supabase.from("users").delete().eq("id", userData.id);
       await supabase.auth.admin.deleteUser(authData.user.id);
-      console.error("Error creating resident:", residentError);
+      console.error("Error creating resident");
       return { data: null, error: residentError.message };
     }
 
@@ -125,7 +178,7 @@ export async function createResident(input: CreateResidentInput) {
 
     return { data: residentData, error: null };
   } catch (error) {
-    console.error("Unexpected error:", error);
+    console.error("Unexpected error");
     return { data: null, error: "An unexpected error occurred" };
   }
 }
@@ -147,13 +200,14 @@ export async function updateResident(
       phone_number: input.phone_number,
       birthdate: input.birthdate,
       sex: input.sex,
+      valid_id_url: input.valid_id_url,
     })
     .eq("id", id)
     .select()
     .single();
 
   if (error) {
-    console.error("Error updating resident:", error);
+    console.error("Error updating resident");
     return { data: null, error: error.message };
   }
 
@@ -175,7 +229,6 @@ export async function updateResidentFacePhoto(
       face_photo_url: facePhotoUrl,
     };
 
-    // Reset verification status to pending if requested
     if (resetVerification) {
       updateData.verification_status = "pending";
     }
@@ -186,7 +239,7 @@ export async function updateResidentFacePhoto(
       .eq("id", residentId);
 
     if (error) {
-      console.error("Update error:", error);
+      console.error("Update error");
       return {
         success: false,
         error: "Failed to update resident face photo",
@@ -198,16 +251,13 @@ export async function updateResidentFacePhoto(
 
     return { success: true };
   } catch (error) {
-    console.error("Update resident face photo error:", error);
+    console.error("Update resident face photo error");
     return {
       success: false,
       error: "An unexpected error occurred",
     };
   }
 }
-
-
-
 
 // ============================================
 // UPDATE VERIFICATION STATUS
@@ -226,7 +276,7 @@ export async function updateVerificationStatus(
     .single();
 
   if (error) {
-    console.error("Error updating verification status:", error);
+    console.error("Error updating verification status");
     return { data: null, error: error.message };
   }
 
@@ -237,13 +287,15 @@ export async function updateVerificationStatus(
 }
 
 // ============================================
-// DELETE RESIDENT (Admin only) - TWO STAGE WITH ARCHIVE
+// DELETE / ARCHIVE RESIDENT
+// Rule:
+// - block only if there is an APPROVED appointment
+// - pending/completed/rejected/cancelled do NOT block
 // ============================================
 export async function deleteResident(id: number) {
   const serverClient = await createClient();
   const adminClient = createAdminClient();
 
-  // ✅ FIX: Use serverClient to get the authenticated user
   const {
     data: { user: currentUser },
   } = await serverClient.auth.getUser();
@@ -253,7 +305,6 @@ export async function deleteResident(id: number) {
   }
 
   try {
-    // Use adminClient for database operations
     const { data: resident, error: fetchError } = await adminClient
       .from("residents")
       .select(
@@ -275,9 +326,32 @@ export async function deleteResident(id: number) {
       };
     }
 
+    // Block only approved appointments
+    const { data: approvedAppointments, error: appointmentCheckError } =
+      await adminClient
+        .from("appointments")
+        .select("id")
+        .eq("resident_id", id)
+        .eq("status", "approved")
+        .limit(1);
+
+    if (appointmentCheckError) {
+      return {
+        success: false,
+        error: appointmentCheckError.message,
+      };
+    }
+
+    if (approvedAppointments && approvedAppointments.length > 0) {
+      return {
+        success: false,
+        error:
+          "This resident cannot be archived because there is still an approved appointment linked to the account. Please archive or update the approved appointment first.",
+      };
+    }
+
     const authId = (resident.users as { auth_id: string })?.auth_id;
 
-    // 2. Archive the resident before deletion
     await archiveItem({
       type: "resident",
       itemId: id,
@@ -287,7 +361,6 @@ export async function deleteResident(id: number) {
       archivedBy: currentUser.id,
     });
 
-    // 3. Delete resident (cascades to appointments, feedback)
     const { error: residentError } = await adminClient
       .from("residents")
       .delete()
@@ -297,12 +370,10 @@ export async function deleteResident(id: number) {
       return { success: false, error: residentError.message };
     }
 
-    // 4. Delete user record
     if (resident.user_id) {
       await adminClient.from("users").delete().eq("id", resident.user_id);
     }
 
-    // 5. Delete auth user
     if (authId) {
       await adminClient.auth.admin.deleteUser(authId);
     }
@@ -312,7 +383,7 @@ export async function deleteResident(id: number) {
 
     return { success: true, error: null };
   } catch (error) {
-    console.error("Error deleting resident:", error);
+    console.error("Error deleting resident");
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to delete resident",
@@ -324,7 +395,6 @@ export async function deleteResident(id: number) {
 // ARCHIVE RESIDENT (DEPRECATED - use deleteResident)
 // ============================================
 export async function archiveResident(id: number) {
-  // Now just calls delete which archives first
   return deleteResident(id);
 }
 
@@ -359,40 +429,34 @@ export async function clearPasswordChangeFlag(residentId: number) {
     .eq("id", residentId);
 
   if (error) {
-    console.error("Error clearing password change flag:", error);
+    console.error("Error clearing password change flag");
     return { success: false, error: error.message };
   }
 
   return { success: true, error: null };
 }
 
-
 export async function getCurrentResident(authId: string) {
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("residents")
-    .select(`
+    .select(
+      `
       *,
       users!inner (
         auth_id,
         email
       )
-    `)
+    `
+    )
     .eq("users.auth_id", authId)
     .single();
 
   if (error) {
-    console.error("Error fetching current resident:", error);
-    return { data: null, error: error.message };
+    console.error("Error fetching current resident");
+    return { data: null, error: "Invalid" };
   }
 
   return { data, error: null };
 }
-
-
-
-
-
-
-

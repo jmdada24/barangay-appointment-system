@@ -87,7 +87,7 @@ export async function POST(req: Request) {
       data: { message: "Password changed successfully." },
     });
   } catch (error) {
-    console.error("force-change-password API error:", error);
+    console.error("force-change-password API error");
     return NextResponse.json(
       {
         success: false,

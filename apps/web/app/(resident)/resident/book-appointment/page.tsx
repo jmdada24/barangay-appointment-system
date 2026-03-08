@@ -14,11 +14,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  createAppointment,
-  getServices,
-  getAvailableSchedules,
-} from "@/actions/appointments";
+import { createAppointment, getServices, getAvailableSchedules } from "@/actions/appointments";
 import { createClient } from "@/utils/supabase/client";
 
 type BookingStep = "service" | "date" | "time" | "details" | "confirm";
@@ -77,27 +73,32 @@ export default function ResidentBookAppointment() {
     timeSlot: "",
     purpose: "",
   });
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  // ✅ NEW: warning modal before final create
+  const [showConfirmWarning, setShowConfirmWarning] = useState(false);
+
+  // ✅ NEW: conflict modal (already has appointment for this schedule)
+  const [showScheduleConflictModal, setShowScheduleConflictModal] = useState(false);
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [services, setServices] = useState<Service[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [residentId, setResidentId] = useState<number | null>(null);
 
-  // Fetch data on mount
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
 
-      // Get current resident ID
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) {
         router.push("/");
         return;
       }
 
-      // Get resident info from your database
       const { data: userRecord } = await supabase
         .from("users")
         .select("id")
@@ -110,17 +111,13 @@ export default function ResidentBookAppointment() {
         .eq("user_id", userRecord?.id)
         .single();
 
-      if (residentRecord) {
-        setResidentId(residentRecord.id);
-      }
+      if (residentRecord) setResidentId(residentRecord.id);
 
-      // Fetch services
       const servicesResult = await getServices();
       if (servicesResult.success && servicesResult.data) {
         setServices(servicesResult.data as Service[]);
       }
 
-      // Fetch schedules
       const schedulesResult = await getAvailableSchedules();
       if (schedulesResult.success && schedulesResult.data) {
         setSchedules(schedulesResult.data as Schedule[]);
@@ -130,6 +127,7 @@ export default function ResidentBookAppointment() {
     }
 
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const days = useMemo(() => getDaysInMonthGrid(currentMonth), [currentMonth]);
@@ -158,14 +156,6 @@ export default function ResidentBookAppointment() {
     { id: "details", label: "Details", number: 4 },
     { id: "confirm", label: "Confirm", number: 5 },
   ] as const;
-
-  function stepDone(stepId: BookingStep) {
-    if (stepId === "service") return formData.serviceId > 0;
-    if (stepId === "date") return !!formData.date;
-    if (stepId === "time") return !!formData.timeSlot;
-    if (stepId === "details") return !!formData.purpose.trim();
-    return false;
-  }
 
   function getStepIndex(stepId: BookingStep) {
     return steps.findIndex((s) => s.id === stepId);
@@ -217,28 +207,44 @@ export default function ResidentBookAppointment() {
     setCurrentStep("confirm");
   }
 
-  async function handleConfirm() {
-    if (!residentId) {
-      return;
+  // ✅ CHANGED: now we show a warning modal first
+  function handleConfirmClick() {
+    // Clear previous submit error if any
+    if (errors.submit) setErrors((p) => ({ ...p, submit: "" }));
+
+    setShowConfirmWarning(true);
   }
 
+  // ✅ CHANGED: only called after user accepts warning
+  async function handleConfirmFinal() {
+    setShowConfirmWarning(false);
+
+    if (!residentId) return;
+
     setLoading(true);
+
+    const scheduleId = schedules.find((s) => s.date === formData.date)?.id || 0;
 
     const result = await createAppointment({
       residentId,
       serviceId: formData.serviceId,
-      scheduleId:
-        schedules.find((s) => s.date === formData.date)?.id || 0,
-      timeSlot: (formData.timeSlot.includes("Morning")
-        ? "morning"
-        : "afternoon") as "morning" | "afternoon",
+      scheduleId,
+      timeSlot: (formData.timeSlot.includes("Morning") ? "morning" : "afternoon") as "morning" | "afternoon",
       purpose: formData.purpose,
     });
 
     setLoading(false);
 
     if (!result.success) {
-      setErrors({ submit: result.error || "Failed to create appointment" });
+      const msg = result.error || "Failed to create appointment";
+
+      // ✅ If duplicate schedule attempt, show modal at Step 5
+      if (msg.toLowerCase().includes("already have an appointment for this schedule")) {
+        setShowScheduleConflictModal(true);
+        return;
+      }
+
+      setErrors({ submit: msg });
       return;
     }
 
@@ -273,9 +279,7 @@ export default function ResidentBookAppointment() {
                 <div
                   className={[
                     "w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold",
-                    isActive || isDone
-                      ? "bg-primary text-white"
-                      : "bg-gray-200 text-gray-500",
+                    isActive || isDone ? "bg-primary text-white" : "bg-gray-200 text-gray-500",
                   ].join(" ")}
                 >
                   {step.number}
@@ -284,30 +288,20 @@ export default function ResidentBookAppointment() {
               </div>
 
               {index < steps.length - 1 && (
-                <div
-                  className={[
-                    "w-20 h-0.5 mx-2 -mt-5",
-                    isDone ? "bg-primary" : "bg-gray-200",
-                  ].join(" ")}
-                />
+                <div className={["w-20 h-0.5 mx-2 -mt-5", isDone ? "bg-primary" : "bg-gray-200"].join(" ")} />
               )}
             </div>
           );
         })}
       </div>
 
-      {/* Card Content */}
       <Card className="border border-gray-200 shadow-sm">
         <CardContent className="p-6">
           {/* Step 1: Service Selection */}
           {currentStep === "service" && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Select Service Type
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Choose the barangay service you need
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Select Service Type</h2>
+              <p className="text-sm text-gray-500 mb-6">Choose the barangay service you need</p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {services.map((service) => (
@@ -321,9 +315,7 @@ export default function ResidentBookAppointment() {
                       <span className="font-medium text-gray-900 group-hover:text-primary-foreground transition-colors block">
                         {service.service_name}
                       </span>
-                      <span className="text-xs text-gray-500 group-hover:text-primary-foreground/80">
-                        ₱{service.fee}
-                      </span>
+                      <span className="text-xs text-gray-500 group-hover:text-primary-foreground/80">₱{service.fee}</span>
                     </div>
                   </button>
                 ))}
@@ -342,50 +334,28 @@ export default function ResidentBookAppointment() {
                 Back to Service Selection
               </button>
 
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Select Date
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Choose your preferred appointment date
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Select Date</h2>
+              <p className="text-sm text-gray-500 mb-6">Choose your preferred appointment date</p>
 
-              {/* Month Navigation */}
               <div className="flex items-center justify-between mb-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={previousMonth}
-                  className="h-8 w-8 p-0"
-                >
+                <Button variant="outline" size="sm" onClick={previousMonth} className="h-8 w-8 p-0">
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <span className="text-base font-medium text-gray-900">
-                  {monthName}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={nextMonth}
-                  className="h-8 w-8 p-0"
-                >
+                <span className="text-base font-medium text-gray-900">{monthName}</span>
+                <Button variant="outline" size="sm" onClick={nextMonth} className="h-8 w-8 p-0">
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
 
-              {/* Calendar Grid */}
               <div className="grid grid-cols-7 gap-1">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div
-                    key={day}
-                    className="text-center text-xs font-medium text-gray-500 py-2"
-                  >
+                  <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
                     {day}
                   </div>
                 ))}
 
                 {days.map((date, index) => {
-                  if (!date)
-                    return <div key={`empty-${index}`} className="aspect-square" />;
+                  if (!date) return <div key={`empty-${index}`} className="aspect-square" />;
 
                   const dateStr = formatDateYYYYMMDD(date);
                   const schedule = schedules.find((s) => s.date === dateStr);
@@ -393,9 +363,10 @@ export default function ResidentBookAppointment() {
                     !!schedule &&
                     (schedule.morning_booked < schedule.morning_slots ||
                       schedule.afternoon_booked < schedule.afternoon_slots);
+
                   const today = normalizeDateOnly(new Date());
-                  const isPast = normalizeDateOnly(date) < today;
-                  const isAvailable = hasSlots && !isPast;
+                  const isTodayOrPast = normalizeDateOnly(date) <= today;
+                  const isAvailable = hasSlots && !isTodayOrPast;
 
                   return (
                     <button
@@ -428,14 +399,9 @@ export default function ResidentBookAppointment() {
                 Back to Date Selection
               </button>
 
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Select Time Slot
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Choose your preferred time
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Select Time Slot</h2>
+              <p className="text-sm text-gray-500 mb-4">Choose your preferred time</p>
 
-              {/* Selection Summary */}
               <div className="mb-6 p-4 bg-primary/5 border border-primary/20 rounded-lg">
                 <p className="text-sm">
                   <span className="font-medium text-primary">Service:</span>{" "}
@@ -454,28 +420,22 @@ export default function ResidentBookAppointment() {
                 </p>
               </div>
 
-              {/* Time Slots */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-4 border border-gray-200 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-gray-500" />
-                      <span className="font-medium text-gray-900">
-                        Morning Session
-                      </span>
+                      <span className="font-medium text-gray-900">Morning Session</span>
                     </div>
                     <span className="text-sm text-gray-500">
-                      {morningAvailable}/
-                      {selectedSchedule?.morning_slots || 10} slots
+                      {morningAvailable}/{selectedSchedule?.morning_slots || 10} slots
                     </span>
                   </div>
                   <p className="text-sm text-gray-500 mb-3">8:00 AM - 11:00 AM</p>
                   <Button
                     className="w-full bg-primary hover:bg-primary/90"
                     disabled={morningAvailable === 0 || loading}
-                    onClick={() =>
-                      handleTimeSelect("8:00 AM - 11:00 AM")
-                    }
+                    onClick={() => handleTimeSelect("8:00 AM - 11:00 AM")}
                     size="lg"
                   >
                     Select Morning
@@ -486,24 +446,17 @@ export default function ResidentBookAppointment() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-gray-500" />
-                      <span className="font-medium text-gray-900">
-                        Afternoon Session
-                      </span>
+                      <span className="font-medium text-gray-900">Afternoon Session</span>
                     </div>
                     <span className="text-sm text-gray-500">
-                      {afternoonAvailable}/
-                      {selectedSchedule?.afternoon_slots || 10} slots
+                      {afternoonAvailable}/{selectedSchedule?.afternoon_slots || 10} slots
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mb-3">
-                    1:00 PM - 4:00 PM
-                  </p>
+                  <p className="text-sm text-gray-500 mb-3">1:00 PM - 4:00 PM</p>
                   <Button
                     className="w-full bg-primary hover:bg-primary/90"
                     disabled={afternoonAvailable === 0 || loading}
-                    onClick={() =>
-                      handleTimeSelect("1:00 PM - 4:00 PM")
-                    }
+                    onClick={() => handleTimeSelect("1:00 PM - 4:00 PM")}
                     size="lg"
                   >
                     Select Afternoon
@@ -524,14 +477,9 @@ export default function ResidentBookAppointment() {
                 Back to Time Selection
               </button>
 
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Appointment Details
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Provide details about your appointment
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Appointment Details</h2>
+              <p className="text-sm text-gray-500 mb-4">Provide details about your appointment</p>
 
-              {/* Selection Summary */}
               <div className="mb-6 p-4 bg-primary/5 border border-primary/20 rounded-lg">
                 <p className="text-sm">
                   <span className="font-medium text-primary">Service:</span>{" "}
@@ -555,24 +503,14 @@ export default function ResidentBookAppointment() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {errors.submit && (
-                  <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {errors.submit}
-                  </div>
-                )}
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Purpose / Description{" "}
-                    <span className="text-red-500">*</span>
+                    Purpose / Description <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     value={formData.purpose}
                     onChange={(e) => {
-                      setFormData((prev) => ({
-                        ...prev,
-                        purpose: e.target.value,
-                      }));
+                      setFormData((prev) => ({ ...prev, purpose: e.target.value }));
                       if (errors.purpose) setErrors({});
                     }}
                     rows={4}
@@ -598,30 +536,17 @@ export default function ResidentBookAppointment() {
                   </p>
                 </div>
 
-                {/* Important Reminders */}
                 <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                  <p className="text-sm font-medium text-primary mb-2">
-                    Important Reminders:
-                  </p>
+                  <p className="text-sm font-medium text-primary mb-2">Important Reminders:</p>
                   <ul className="text-sm text-primary/80 space-y-1 list-disc list-inside">
                     <li>Your appointment will be subject to admin approval</li>
-                    <li>
-                      Please arrive 10 minutes before your scheduled time
-                    </li>
+                    <li>Please arrive 10 minutes before your scheduled time</li>
                     <li>Bring valid ID and required documents</li>
-                    <li>
-                      You will receive a notification once your request is
-                      processed
-                    </li>
+                    <li>You will receive a notification once your request is processed</li>
                   </ul>
                 </div>
 
-                <Button
-                  type="submit"
-                  className="w-full bg-primary hover:bg-primary/90"
-                  size="lg"
-                  disabled={loading}
-                >
+                <Button type="submit" className="w-full bg-primary hover:bg-primary/90" size="lg" disabled={loading}>
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -646,20 +571,19 @@ export default function ResidentBookAppointment() {
                 Back to Details
               </button>
 
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                Confirm Appointment
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Please review your appointment details
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Confirm Appointment</h2>
+              <p className="text-sm text-gray-500 mb-6">Please review your appointment details</p>
 
-              {/* Confirmation Details */}
+              {errors.submit && (
+                <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 mb-4">
+                  {errors.submit}
+                </div>
+              )}
+
               <div className="bg-gray-50 rounded-lg p-5 mb-6 space-y-4">
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Service Type</p>
-                  <p className="text-sm font-medium text-gray-900">
-                    {formData.serviceName}
-                  </p>
+                  <p className="text-sm font-medium text-gray-900">{formData.serviceName}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -676,37 +600,22 @@ export default function ResidentBookAppointment() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 mb-0.5">Time Slot</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {formData.timeSlot}
-                    </p>
+                    <p className="text-sm font-medium text-gray-900">{formData.timeSlot}</p>
                   </div>
                 </div>
 
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Purpose</p>
-                  <p className="text-sm font-medium text-gray-900">
-                    {formData.purpose}
-                  </p>
+                  <p className="text-sm font-medium text-gray-900">{formData.purpose}</p>
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => setCurrentStep("details")}
-                  size="lg"
-                  disabled={loading}
-                >
+                <Button variant="outline" className="flex-1" onClick={() => setCurrentStep("details")} size="lg" disabled={loading}>
                   Edit Details
                 </Button>
-                <Button
-                  className="flex-1 bg-primary hover:bg-primary/90"
-                  onClick={handleConfirm}
-                  size="lg"
-                  disabled={loading}
-                >
+
+                <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={handleConfirmClick} size="lg" disabled={loading}>
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -722,6 +631,50 @@ export default function ResidentBookAppointment() {
         </CardContent>
       </Card>
 
+      {/* ✅ Warning modal before final confirm */}
+      {showConfirmWarning && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-sm w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Before you confirm</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Please make sure everything is correct. Once you submit, you <b>can’t create another appointment for this same schedule</b>
+              while your request is pending or approved.
+            </p>
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowConfirmWarning(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={handleConfirmFinal}>
+                Yes, Submit
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Conflict modal (duplicate schedule) */}
+      {showScheduleConflictModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-sm w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Schedule Already Taken</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              You already have an appointment for this schedule (pending or approved). Please choose another date.
+            </p>
+
+            <Button
+              className="w-full bg-primary hover:bg-primary/90"
+              onClick={() => {
+                setShowScheduleConflictModal(false);
+                setCurrentStep("date");
+              }}
+            >
+              Choose another date
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Success Modal */}
       {showSuccessModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -730,17 +683,11 @@ export default function ResidentBookAppointment() {
               <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="w-7 h-7 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Appointment Submitted!
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Appointment Submitted!</h3>
               <p className="text-sm text-gray-500 mb-5">
-                Your appointment request has been submitted successfully. You
-                will receive a notification once it is reviewed.
+                Your appointment request has been submitted successfully. You will receive a notification once it is reviewed.
               </p>
-              <Button
-                className="w-full bg-primary hover:bg-primary/90"
-                onClick={handleSuccessClose}
-              >
+              <Button className="w-full bg-primary hover:bg-primary/90" onClick={handleSuccessClose}>
                 View My Appointments
               </Button>
             </div>

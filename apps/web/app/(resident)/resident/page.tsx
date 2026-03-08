@@ -71,7 +71,7 @@ export default function ResidentOverviewPage() {
       }
     } catch (err) {
       setError("Failed to load overview data");
-      console.error(err);
+      console.error("Failed to load the data");
     }
 
     setLoading(false);

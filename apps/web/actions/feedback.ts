@@ -70,13 +70,13 @@ export async function getFeedback(): Promise<FeedbackResult> {
       .order("submitted_at", { ascending: false });
 
     if (error) {
-      console.error("Fetch feedback error:", error);
+      console.error("Fetch feedback error");
       return { success: false, error: error.message };
     }
 
     return { success: true, data: data || [] };
   } catch (error) {
-    console.error("Unexpected error in getFeedback:", error);
+    console.error("Unexpected error in get Feedback");
     return {
       success: false,
       error:
@@ -115,7 +115,7 @@ export async function submitFeedback(
       .single();
 
     if (error) {
-      console.error("Submit feedback error:", error);
+      console.error("Submit feedback error");
       return { success: false, error: error.message };
     }
 
@@ -124,7 +124,7 @@ export async function submitFeedback(
       data: { message: "Feedback submitted successfully", feedback: data },
     };
   } catch (error) {
-    console.error("Unexpected error in submitFeedback:", error);
+    console.error("Unexpected error in submit Feedback");
     return {
       success: false,
       error:
@@ -191,13 +191,13 @@ export async function archiveFeedback(feedbackId: number): Promise<FeedbackResul
       .eq("id", feedbackId);
 
     if (updateError) {
-      console.error("Archive feedback error:", updateError);
+      console.error("Archive feedback error");
       return { success: false, error: updateError.message };
     }
 
     return { success: true, data: { message: "Feedback archived successfully" } };
   } catch (error) {
-    console.error("Unexpected error in archiveFeedback:", error);
+    console.error("Unexpected error in archive feedback");
     return {
       success: false,
       error:
@@ -261,13 +261,13 @@ export async function deleteFeedback(feedbackId: number): Promise<FeedbackResult
       .eq("id", feedbackId);
 
     if (deleteError) {
-      console.error("Delete feedback error:", deleteError);
+      console.error("Delete feedback error");
       return { success: false, error: deleteError.message };
     }
 
     return { success: true, data: { message: "Feedback deleted successfully" } };
   } catch (error) {
-    console.error("Unexpected error in deleteFeedback:", error);
+    console.error("Unexpected error in deleteFeedback");
     return {
       success: false,
       error:
@@ -314,7 +314,7 @@ export async function getFeedbackStats(): Promise<FeedbackResult> {
 
     return { success: true, data: stats };
   } catch (error) {
-    console.error("Unexpected error in getFeedbackStats:", error);
+    console.error("Unexpected error in get feedback stats");
     return {
       success: false,
       error:

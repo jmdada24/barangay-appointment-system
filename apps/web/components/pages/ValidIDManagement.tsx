@@ -43,7 +43,7 @@ export function ValidIDViewer({ validIDUrl, residentName }: ValidIDViewerProps) 
               fill
               className="object-contain"
               onError={(e) => {
-                console.error("Image load error:", validIDUrl);
+                console.error("Image load error");
                 e.currentTarget.src = "/placeholder-image.png";
               }}
             />

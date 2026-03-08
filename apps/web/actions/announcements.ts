@@ -2,7 +2,8 @@
 
 import { createAdminClient } from "@/utils/supabase/admin";
 import { archiveItem } from "@/utils/archive-helper";
-
+import { createClient } from "@/utils/supabase/server";
+import { revalidatePath } from "next/cache";
 
 export type AnnouncementResult = {
   success: boolean;
@@ -25,13 +26,13 @@ export async function getAnnouncements(): Promise<AnnouncementResult> {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Fetch announcements error:", error);
+      console.error("Fetch announcements error");
       return { success: false, error: error.message };
     }
 
     return { success: true, data: data || [] };
   } catch (error) {
-    console.error("Unexpected error in getAnnouncements:", error);
+    console.error("Unexpected error in get announcements");
     return {
       success: false,
       error:
@@ -62,7 +63,7 @@ export async function createAnnouncement(formData: {
       .single();
 
     if (error) {
-      console.error("Create announcement error:", error);
+      console.error("Create announcement error");
       return { success: false, error: error.message };
     }
 
@@ -71,7 +72,7 @@ export async function createAnnouncement(formData: {
       data: { message: "Announcement created successfully", announcement: data },
     };
   } catch (error) {
-    console.error("Unexpected error in createAnnouncement:", error);
+    console.error("Unexpected error in create announcement");
     return {
       success: false,
       error:
@@ -106,7 +107,7 @@ export async function updateAnnouncement(
       .single();
 
     if (error) {
-      console.error("Update announcement error:", error);
+      console.error("Update announcement error");
       return { success: false, error: error.message };
     }
 
@@ -115,7 +116,7 @@ export async function updateAnnouncement(
       data: { message: "Announcement updated successfully", announcement: data },
     };
   } catch (error) {
-    console.error("Unexpected error in updateAnnouncement:", error);
+    console.error("Unexpected error in update announcement");
     return {
       success: false,
       error:
@@ -131,18 +132,34 @@ export async function deleteAnnouncement(
   announcementId: number
 ): Promise<AnnouncementResult> {
   try {
-    const supabase = createAdminClient();
+    const serverClient = await createClient();
+    const adminClient = createAdminClient();
 
     const {
       data: { user: currentUser },
-    } = await supabase.auth.getUser();
+      error: userError,
+    } = await serverClient.auth.getUser();
 
-    if (!currentUser) {
+    if (userError || !currentUser) {
       return { success: false, error: "Unauthorized" };
     }
 
-    // 1. Get announcement
-    const { data: announcement, error: fetchError } = await supabase
+    // Optional but recommended: verify role = admin
+    const { data: roleRow, error: roleError } = await adminClient
+      .from("users")
+      .select("role")
+      .eq("auth_id", currentUser.id)
+      .single();
+
+    if (roleError) {
+      return { success: false, error: "Role check failed" };
+    }
+
+    if (roleRow?.role !== "admin") {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const { data: announcement, error: fetchError } = await adminClient
       .from("announcements")
       .select("*")
       .eq("id", announcementId)
@@ -155,7 +172,6 @@ export async function deleteAnnouncement(
       };
     }
 
-    // 2. Archive it
     await archiveItem({
       type: "announcement",
       itemId: announcementId,
@@ -165,20 +181,21 @@ export async function deleteAnnouncement(
       archivedBy: currentUser.id,
     });
 
-    // 3. Delete from announcements table
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await adminClient
       .from("announcements")
       .delete()
       .eq("id", announcementId);
 
     if (deleteError) {
-      console.error("Delete announcement error:", deleteError);
       return { success: false, error: deleteError.message };
     }
 
+    revalidatePath("/admin/announcement");
+    revalidatePath("/admin/archive");
+
     return { success: true, data: { message: "Announcement deleted" } };
   } catch (error) {
-    console.error("Unexpected error in deleteAnnouncement:", error);
+    console.error("Unexpected error in delete announcement");
     return {
       success: false,
       error:

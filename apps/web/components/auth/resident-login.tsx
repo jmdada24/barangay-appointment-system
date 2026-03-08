@@ -26,11 +26,12 @@ type FormValues = z.infer<typeof schema>;
 
 export default function ResidentLogin() {
   const router = useRouter();
+
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  
+
   // Password change modal state
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
   const [residentId, setResidentId] = useState<number | null>(null);
@@ -50,11 +51,13 @@ export default function ResidentLogin() {
     setLoading(true);
 
     const supabase = createClient();
+
+    // 1) Sign in
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setLoading(false);
-      
+
       // Handle email not confirmed error
       if (error.message.toLowerCase().includes("email not confirmed")) {
         setInfoMessage("Please verify your email first. Redirecting to verification...");
@@ -63,19 +66,19 @@ export default function ResidentLogin() {
         }, 2000);
         return;
       }
-      
-      return setFormError(error.message);
+
+      setFormError(error.message);
+      return;
     }
 
-    // Get user role and check resident status
-    const { data: userData } = await supabase
+    // 2) Load role from public.users
+    const { data: userData, error: userErr } = await supabase
       .from("users")
       .select("id, role")
       .eq("auth_id", data.user.id)
       .single();
 
-    // If no user record exists, account setup is incomplete
-    if (!userData) {
+    if (userErr || !userData) {
       setLoading(false);
       await supabase.auth.signOut();
       setFormError("Your account setup is incomplete. Please contact support or try registering again.");
@@ -84,47 +87,54 @@ export default function ResidentLogin() {
 
     const role = userData.role || "resident";
 
-    // For residents, check verification status and password change requirement
-    if (role === "resident") {
-      const { data: residentData } = await supabase
-        .from("residents")
-        .select("id, verification_status, must_change_password")
-        .eq("user_id", userData.id)
-        .single();
-
-      if (residentData?.verification_status === "pending") {
-        setLoading(false);
-        await supabase.auth.signOut();
-        setInfoMessage("Your account is pending admin verification. Please wait for approval.");
-        return;
-      }
-
-      if (residentData?.verification_status === "rejected") {
-        setLoading(false);
-        await supabase.auth.signOut();
-        setFormError("Your account has been rejected. Please contact the barangay office for assistance.");
-        return;
-      }
-
-      // Check if password change is required
-      if (residentData?.must_change_password) {
-        setLoading(false);
-        setResidentId(residentData.id);
-        setShowPasswordChangeModal(true);
-        return;
-      }
+    // ✅ 3) Residents-only portal: block admin/staff immediately
+    if (role !== "resident") {
+      setLoading(false);
+      await supabase.auth.signOut();
+      setFormError("Invalid login credentials");
+      return;
     }
 
+    // 4) Resident checks: verification + forced password change
+    const { data: residentData, error: residentErr } = await supabase
+      .from("residents")
+      .select("id, verification_status, must_change_password")
+      .eq("user_id", userData.id)
+      .single();
+
+    // If resident profile missing, sign out + show error
+    if (residentErr || !residentData) {
+      setLoading(false);
+      await supabase.auth.signOut();
+      setFormError("Resident profile not found. Please contact the barangay office for assistance.");
+      return;
+    }
+
+    if (residentData.verification_status === "pending") {
+      setLoading(false);
+      await supabase.auth.signOut();
+      setInfoMessage("Your account is pending admin verification. Please wait for approval.");
+      return;
+    }
+
+    if (residentData.verification_status === "rejected") {
+      setLoading(false);
+      await supabase.auth.signOut();
+      setFormError("Your account has been rejected. Please contact the barangay office for assistance.");
+      return;
+    }
+
+    // Force password change flow
+    if (residentData.must_change_password) {
+      setLoading(false);
+      setResidentId(residentData.id);
+      setShowPasswordChangeModal(true);
+      return;
+    }
+
+    // 5) Success -> go to resident dashboard
     setLoading(false);
-
-    // Redirect based on role
-    if (role === "admin") {
-      window.location.href = "/admin";
-    } else if (role === "staff") {
-      window.location.href = "/staff";
-    } else {
-      window.location.href = "/resident";
-    }
+    window.location.href = "/resident";
   });
 
   return (
@@ -138,7 +148,9 @@ export default function ResidentLogin() {
           <div className="flex min-h-full items-center justify-center p-6 lg:p-12">
             <div className="w-full max-w-xl">
               <h2 className="text-4xl font-semibold tracking-tight">Sign In</h2>
-              <p className="mt-2 text-base text-muted-foreground">Use your email and password to continue.</p>
+              <p className="mt-2 text-base text-muted-foreground">
+                Use your email and password to continue.
+              </p>
 
               <form onSubmit={onSubmit} className="mt-8 space-y-6">
                 <div className="space-y-2">
@@ -172,18 +184,18 @@ export default function ResidentLogin() {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowPassword((v) => !v)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                       disabled={loading}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
                     >
-                      {showPassword ? (
-                        <EyeOff className="h-5 w-5" />
-                      ) : (
-                        <Eye className="h-5 w-5" />
-                      )}
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                     </button>
                   </div>
-                  {errors.password && <p className="text-sm text-red-600">{errors.password.message}</p>}
+
+                  {errors.password && (
+                    <p className="text-sm text-red-600">{errors.password.message}</p>
+                  )}
 
                   <div className="flex justify-end">
                     <Link href="/forgot-password" className="text-sm text-primary hover:underline">
@@ -204,10 +216,13 @@ export default function ResidentLogin() {
                   </div>
                 )}
 
-                <Button className="w-full h-12 text-base bg-primary hover:bg-primary/90" type="submit" disabled={loading}>
+                <Button
+                  className="w-full h-12 text-base bg-primary hover:bg-primary/90"
+                  type="submit"
+                  disabled={loading}
+                >
                   {loading ? "Signing in..." : "Sign In"}
                 </Button>
-
               </form>
             </div>
           </div>

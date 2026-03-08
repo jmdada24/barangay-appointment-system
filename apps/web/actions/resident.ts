@@ -54,7 +54,7 @@ export async function getResidentAppointmentStats(): Promise<ResidentResult> {
       .eq("resident_id", resident.id);
 
     if (error) {
-      console.error("Fetch stats error:", error);
+      console.error("Fetch stats error");
       return { success: false, error: error.message };
     }
 
@@ -68,7 +68,7 @@ export async function getResidentAppointmentStats(): Promise<ResidentResult> {
 
     return { success: true, data: stats };
   } catch (error) {
-    console.error("Unexpected error in getResidentAppointmentStats:", error);
+    console.error("Unexpected error in get resident appointment stats");
     return {
       success: false,
       error:
@@ -130,7 +130,7 @@ export async function getResidentRecentActivity(): Promise<ResidentResult> {
       .limit(5);
 
     if (apptError) {
-      console.error("Fetch appointments error:", apptError);
+      console.error("Fetch appointments error" );
     }
 
     // Get recent announcements
@@ -148,7 +148,7 @@ export async function getResidentRecentActivity(): Promise<ResidentResult> {
       .limit(5);
 
     if (announcError) {
-      console.error("Fetch announcements error:", announcError);
+      console.error("Fetch announcements error");
     }
 
     // Combine and format activities
@@ -221,7 +221,7 @@ export async function getResidentRecentActivity(): Promise<ResidentResult> {
 
     return { success: true, data: activities.slice(0, 5) };
   } catch (error) {
-    console.error("Unexpected error in getResidentRecentActivity:", error);
+    console.error("Unexpected error in get resident recent activity");
     return {
       success: false,
       error:
