@@ -201,6 +201,7 @@ export async function updateResident(
       birthdate: input.birthdate,
       sex: input.sex,
       valid_id_url: input.valid_id_url,
+      verification_status: "verified",
     })
     .eq("id", id)
     .select()

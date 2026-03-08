@@ -177,11 +177,11 @@ export default function ResidentEditForm({
             return;
           }
 
-          const facePhotoPath = (uploadResult.data as { path: string }).path;
+          const facePhotoUrl = (uploadResult.data as { path: string; url: string }).url;
           const updatePhotoResult = await updateResidentFacePhoto(
             resident.id,
-            facePhotoPath,
-            true
+            facePhotoUrl,
+            false
           );
 
           if (!updatePhotoResult.success) {

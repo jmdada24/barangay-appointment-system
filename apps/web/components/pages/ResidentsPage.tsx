@@ -80,6 +80,22 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [selectedResident, setSelectedResident] = useState<ResidentWithUser | null>(null);
 
+  const normalizedSelectedResident = selectedResident
+    ? {
+        id: selectedResident.id,
+        name: selectedResident.name,
+        address: selectedResident.address ?? "",
+        phone_number: selectedResident.phone_number ?? "",
+        birthdate: selectedResident.birthdate ?? "",
+        sex: (selectedResident.sex ?? "male") as "male" | "female",
+        face_photo_url: selectedResident.face_photo_url ?? undefined,
+        valid_id_url: selectedResident.valid_id_url ?? undefined,
+        verification_status: selectedResident.verification_status,
+      }
+    : null;
+
+
+
   async function fetchResidents() {
     setLoading(true);
     const { data } = await getResidents();
@@ -363,7 +379,7 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
           setShowEditModal(open);
           if (!open) setSelectedResident(null);
         }}
-        resident={selectedResident}
+        resident={normalizedSelectedResident}
         onSuccess={fetchResidents}
       />
 
@@ -373,8 +389,8 @@ export default function ResidentsPage({ role }: ResidentsPageProps) {
           setShowViewModal(open);
           if (!open) setSelectedResident(null);
         }}
-        resident={selectedResident}
-        onSuccess={fetchResidents}
+        resident={normalizedSelectedResident}
+        
       />
 
       <ArchiveDialog
